@@ -16,6 +16,7 @@
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
 
-from sys import _version_info
+from __future__ import annotations
 
-version_info = _version_info([1, 0, 0, "b1"])
+
+version_info: list[int | str] = [1, 0, 0, "b2"]
