@@ -20,4 +20,4 @@ import command_creator
 
 
 def test_import():
-    pass
+    print(command_creator.version_info)
