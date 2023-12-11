@@ -285,9 +285,9 @@ class Command(ABC):
 
   @classmethod
   def execute(cls: Type[CommandT]) -> None:
-    """Execute the command
+    """Execute the command and exit with the return code
     """
     parser = cls.create_parser()
     args = parser.parse_args()
     cmd = cls.from_args(args)
-    cmd()
+    exit(cmd())
