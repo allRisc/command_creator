@@ -116,7 +116,6 @@ def arg(
       **kwargs (Any): Additional keyword arguments for the argument.
   """
   if sys.version_info >= (3, 10):
-    print(sys.version_info)
     if "kw_only" not in kwargs:
       kwargs["kw_only"] = False
 
