@@ -58,7 +58,7 @@ class CmdArgument(Field):
         self,
         help: str = "",
         abrv: str | None = None,
-        choices: list[str] | Enum | None = None,
+        choices: list[str] | type[Enum] | None = None,
         optional: bool = False,
         default: Any = MISSING,
         default_factory: Callable[[], Any] = lambda: MISSING,
@@ -82,7 +82,7 @@ class CmdArgument(Field):
 def arg(
       help: str = "",
       abrv: str | None = None,
-      choices: list[str] | Enum | None = None,
+      choices: list[str] | type[Enum] | None = None,
       optional: bool = False,
       default: Any = MISSING,
       default_factory: Callable[[], Any] = lambda: MISSING,
@@ -92,7 +92,7 @@ def arg(
       compare: bool = True,
       metadata: Mapping[Any, Any] = dict(),
       **kwargs: Any
-    ) -> CmdArgument:
+    ) -> Any:
   """Create a command-line argument
 
   Args:
@@ -115,7 +115,8 @@ def arg(
       metadata (Mapping[Any, Any], optional): Metadata for the argument. Defaults to dict().
       **kwargs (Any): Additional keyword arguments for the argument.
   """
-  if sys.version_info > (3, 7):
+  if sys.version_info >= (3, 10):
+    print(sys.version_info)
     if "kw_only" not in kwargs:
       kwargs["kw_only"] = False
 
@@ -138,9 +139,6 @@ def arg(
 #####################################################################################
 # Command Class
 #####################################################################################
-cmd: Callable[..., Any] = dataclass
-
-
 @dataclass
 class Command(ABC):
   """Class which represents a command-line command
@@ -217,8 +215,13 @@ class Command(ABC):
       if fld.choices is not None:
         if isinstance(fld.choices, list):
           kwargs['choices'] = fld.choices
-        elif issubclass(type(fld.choices), Enum):
-          kwargs['choices'] = [str(e) for e in fld.choices]
+        elif issubclass(fld.choices, Enum):
+          kwargs['choices'] = [str(e).replace(fld.choices.__name__ + ".", "") for e in fld.choices]
+        else:
+          raise ValueError(
+            f"Field {fld.name} has an invalid type for choices" +
+            " Did you use an Enum or a list?"
+          )
 
       if fld.default is not MISSING:
         kwargs['default'] = fld.default

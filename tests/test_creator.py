@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import io
 from enum import Enum
-from command_creator import Command, arg, cmd
+from command_creator import Command, arg
 from dataclasses import dataclass
+import sys
 
 
 class OptionsDemo(Enum):
@@ -52,18 +53,21 @@ def test_creator():
   str_io = io.StringIO()
   parser.print_help(str_io)
 
-  assert str_io.getvalue() == """usage: democommand [-h] [--choose {A,B,C}] [--debug] test
+  opt_str = "options:" if sys.version_info >= (3, 10) else "optional arguments:"
 
-Create a demo command
-
-positional arguments:
-  test              A test argument
-
-options:
-  -h, --help        show this help message and exit
-  --choose {A,B,C}  Choose an option
-  --debug, -d       Enable debug mode
-"""
+  assert str_io.getvalue() == (
+                               "usage: democommand [-h] [--choose {A,B,C}] [--debug] test\n"
+                               "\n"
+                               "Create a demo command\n"
+                               "\n"
+                               "positional arguments:\n"
+                               "  test              A test argument\n"
+                               "\n"
+                               f"{opt_str}\n"
+                               "  -h, --help        show this help message and exit\n"
+                               "  --choose {A,B,C}  Choose an option\n"
+                               "  --debug, -d       Enable debug mode\n"
+                              )
 
 
 if __name__ == "__main__":
