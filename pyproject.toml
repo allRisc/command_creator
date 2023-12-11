@@ -22,13 +22,13 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "command_creator"
-version = "1.0.0b4"
+version = "1.0.0"
 description = "A package to simplify the creation of Python Command-Line tools"
 readme = "README.md"
 authors = [{name = "Benjamin Davis", email = "allrisc.dev@gmail.com"}]
 license = {file = "LICENSE"}
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.7",
