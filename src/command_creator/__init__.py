@@ -283,3 +283,12 @@ class Command(ABC):
           arg_dict[fld.name] = None
 
     return cls(**arg_dict)
+
+  @classmethod
+  def execute(cls: Type[CommandT]) -> None:
+    """Execute the command
+    """
+    parser = cls.create_parser()
+    args = parser.parse_args()
+    cmd = cls.from_args(args)
+    cmd()
