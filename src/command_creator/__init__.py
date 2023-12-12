@@ -144,6 +144,7 @@ class Command(ABC):
   """
 
   sub_commands: ClassVar[dict[str, Command]] = dict()
+  sub_command: Command | None = None
 
   @abstractmethod
   def __post_init__(self) -> None:
@@ -178,6 +179,8 @@ class Command(ABC):
     """
     for fld in fields(cls):
       if "ClassVar" in str(fld.type):
+        continue
+      if fld.name == "sub_command":
         continue
       if not isinstance(fld, CmdArgument):
         raise InvalidArgumentError(
@@ -268,6 +271,8 @@ class Command(ABC):
 
     for fld in fields(cls):
       if not isinstance(fld, CmdArgument):
+        if fld.name == "sub_command":
+          continue
         raise InvalidArgumentError(
           f"Field {fld.name} is not a CmdArgument" +
           " Did you use field() instead of arg()?"
@@ -280,6 +285,9 @@ class Command(ABC):
           arg_dict[fld.name] = []
         elif len(arg_dict[fld.name]) == 0:
           arg_dict[fld.name] = None
+
+    if len(cls.sub_commands) != 0 and args.sub_command is not None:
+      arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
 
     return cls(**arg_dict)
 
