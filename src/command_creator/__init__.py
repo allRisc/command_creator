@@ -144,7 +144,7 @@ class Command(ABC):
   """
 
   sub_commands: ClassVar[dict[str, Command]] = dict()
-  sub_command: Command | None = None
+  sub_command: Command | None
 
   @abstractmethod
   def __post_init__(self) -> None:
@@ -288,6 +288,8 @@ class Command(ABC):
 
     if len(cls.sub_commands) != 0 and args.sub_command is not None:
       arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
+    else:
+      arg_dict["sub_command"] = None
 
     return cls(**arg_dict)
 
