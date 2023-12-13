@@ -1,6 +1,10 @@
 services:
   app:
     entrypoint:
+    - pip
+    - install
+    - .[dev]
+    - '&&'
     - sleep
     - infinity
     image: allrisc/pydocker:latest
