@@ -3,7 +3,7 @@ services:
     entrypoint:
     - sleep
     - infinity
-    image: allrisc/pydocker:1.0.0
+    image: allrisc/pydocker:latest
     init: true
     volumes:
     - type: bind
