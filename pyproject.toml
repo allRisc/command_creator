@@ -22,7 +22,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "command_creator"
-version = "1.0.1"
+version = "1.0.2"
 description = "A package to simplify the creation of Python Command-Line tools"
 readme = "README.md"
 authors = [{name = "Benjamin Davis", email = "allrisc.dev@gmail.com"}]
