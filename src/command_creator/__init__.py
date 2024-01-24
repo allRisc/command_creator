@@ -143,7 +143,7 @@ class Command(ABC):
   """Class which represents a command-line command
   """
 
-  sub_commands: ClassVar[dict[str, Command]] = dict()
+  sub_commands: ClassVar[dict[str, CommandT]] = dict()
   sub_command: Command | None
 
   @abstractmethod
