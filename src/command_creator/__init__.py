@@ -28,7 +28,7 @@ from argparse import ArgumentParser, Namespace
 #####################################################################################
 # Version Information
 #####################################################################################
-version_info: list[int | str] = [1, 0, 0, "b2"]
+version_info: list[int | str] = [1, 0, 2]
 
 
 #####################################################################################
@@ -69,7 +69,12 @@ class CmdArgument(Field):
         metadata: Mapping[Any, Any] = dict(),
         **kwargs: Any
       ) -> None:
+    if (sys.version_info >= (3, 10)):
+      if "kw_only" not in kwargs:
+        kwargs["kw_only"] = False
+
     super().__init__(default, default_factory, init, repr, hash, compare, metadata, **kwargs)
+
     if default_factory() is MISSING:
       self.default_factory = MISSING
 
