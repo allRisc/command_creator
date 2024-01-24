@@ -41,12 +41,6 @@ class InvalidArgumentError(Exception):
 
 
 #####################################################################################
-# Type Information
-#####################################################################################
-CommandT = TypeVar("CommandT", bound="Command")
-
-
-#####################################################################################
 # Command Argument
 #####################################################################################
 class CmdArgument(Field):
@@ -148,7 +142,7 @@ class Command(ABC):
   """Class which represents a command-line command
   """
 
-  sub_commands: ClassVar[dict[str, CommandT]] = dict()
+  sub_commands: ClassVar[dict[str, Type[Command]]] = dict()
   sub_command: Command | None
 
   @abstractmethod
@@ -306,3 +300,9 @@ class Command(ABC):
     args = parser.parse_args()
     cmd = cls.from_args(args)
     exit(cmd())
+
+
+#####################################################################################
+# Type Information
+#####################################################################################
+CommandT = TypeVar("CommandT", bound="Command")
