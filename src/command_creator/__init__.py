@@ -28,7 +28,9 @@ from argparse import ArgumentParser, Namespace
 #####################################################################################
 # Version Information
 #####################################################################################
-version_info: list[int | str] = [1, 0, 2]
+from ._version import __version__
+
+version_info = [int(x) if x.isdigit() else x for x in __version__.split(".")]
 
 
 #####################################################################################
@@ -38,6 +40,13 @@ class InvalidArgumentError(Exception):
   """Error raised when an invalid argument is passed to a command
   """
   pass
+
+
+#####################################################################################
+# Useful Constants
+#####################################################################################
+SUCCESS = 0
+FAILURE = 1
 
 
 #####################################################################################
