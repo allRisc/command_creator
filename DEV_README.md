@@ -11,6 +11,7 @@ Releases are published automatically when a tag is pushed to GitHub.
 ```bash
   # Set next version number
   export RELEASE=x.x.x
+  export RELEASE=$(python -c "import command_creator._version as _version; print(_version.__version__)")
 
   # Ensure committing everything (optional)
   git add -A
