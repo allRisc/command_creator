@@ -23,14 +23,14 @@ import pathlib
 import sys
 
 _proj_root = pathlib.Path(__file__).parent
-_version_spec = importlib.util.spec_from_file_location(
-                                   "command_creator._version",
-                                   _proj_root.joinpath("src", "command_creator", "_version.py")
+_info_spec = importlib.util.spec_from_file_location(
+                                   "command_creator._info",
+                                   _proj_root.joinpath("src", "command_creator", "_info.py")
                                )
-_version = importlib.util.module_from_spec(_version_spec)
-_version_spec.loader.exec_module(_version)
+_info = importlib.util.module_from_spec(_info_spec)
+_info_spec.loader.exec_module(_info)
 
 if __name__ == "__main__":
   setup(
-    version=_version.__version__
+    version=_info.__version__
   )
