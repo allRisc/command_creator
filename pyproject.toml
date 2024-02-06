@@ -50,3 +50,4 @@ Documentation = "https://github.com/allRisc/command_creator/blob/main/README.md"
 
 [project.optional-dependencies]
 dev = ["flake8", "mypy", "tox", "pytest", "sphinx", "sphinx-rtd-theme"]
+docs = ['sphinx', 'sphinx-rtd-theme']
