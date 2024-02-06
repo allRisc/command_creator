@@ -12,7 +12,7 @@ from datetime import datetime
 project = 'Command Creator'
 copyright = f"{datetime.now().year}, {_info.__author__}"
 author = _info.__author__
-release = '1.1.0'
+release = _info.__version__
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
