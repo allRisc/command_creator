@@ -1,6 +1,6 @@
 #####################################################################################
 # A package to simplify the creation of Python Command-Line tools
-# Copyright (C) 2024  Benjamin Davis
+# Copyright (C) 2023  Benjamin Davis
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -16,10 +16,8 @@
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
 
-#####################################################################################
-# Library Version
-#####################################################################################
-__version__ = "1.1.0"
+from __future__ import annotations
 
-if __name__ == "__main__":
-  print(__version__)
+
+__version__: str = "1.1.0"
+__author__: str = "Benjamin Davis"

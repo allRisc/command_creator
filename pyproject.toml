@@ -49,4 +49,4 @@ Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://github.com/allRisc/command_creator/blob/main/README.md"
 
 [project.optional-dependencies]
-dev = ["flake8", "mypy", "tox", "pytest"]
+dev = ["flake8", "mypy", "tox", "pytest", "sphinx", "sphinx-rtd-theme"]
