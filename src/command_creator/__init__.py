@@ -106,14 +106,20 @@ def arg(
   Args:
       help (str, optional): Help message for the argument. Defaults to empty string.
       abrv (str | None, optional): Abbreviation for the argument. Defaults to None.
-      choices (list[str] | Enum | None, optional): List of choices for the argument. Defaults to None.
+      choices (list[str] | Enum | None, optional): List of choices for the argument.
+        Defaults to None.
       optional (bool, optional): Whether the argument is optional. Defaults to False.
       default (Any, optional): Default value for the argument. Defaults to MISSING.
-      default_factory (Callable[[], Any], optional): Default factory for the argument. Defaults to lambda: MISSING.
-      init (bool, optional): Whether the argument is included in the __init__ method. Defaults to True.
-      repr (bool, optional): Whether the argument is included in the __repr__ method. Defaults to True.
-      hash (bool | None, optional): Whether the argument is included in the __hash__ method. Defaults to None.
-      compare (bool, optional): Whether the argument is included in the __eq__ method. Defaults to True.
+      default_factory (Callable[[], Any], optional): Default factory for the argument.
+        Defaults to lambda: MISSING.
+      init (bool, optional): Whether the argument is included in the __init__ method.
+        Defaults to True.
+      repr (bool, optional): Whether the argument is included in the __repr__ method.
+        Defaults to True.
+      hash (bool | None, optional): Whether the argument is included in the __hash__ method.
+        Defaults to None.
+      compare (bool, optional): Whether the argument is included in the __eq__ method.
+        Defaults to True.
       metadata (Mapping[Any, Any], optional): Metadata for the argument. Defaults to dict().
       **kwargs (Any): Additional keyword arguments for the argument.
 

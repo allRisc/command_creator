@@ -16,20 +16,38 @@
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
 
-from setuptools import setup
+from __future__ import annotations
 
-import importlib.util
-import pathlib
+import command_creator as cc
+import enum
 
-_proj_root = pathlib.Path(__file__).parent
-_info_spec = importlib.util.spec_from_file_location(
-                                   "command_creator._info",
-                                   _proj_root.joinpath("src", "command_creator", "_info.py")
-                               )
-_info = importlib.util.module_from_spec(_info_spec)
-_info_spec.loader.exec_module(_info)
+
+# Set of choices to use for one of the arguments
+class Choices(enum.StrEnum):
+  choice1 = enum.auto()
+  choice2 = enum.auto()
+
+
+# Create a new command
+@cc.dataclass
+class CommandName(cc.Command):
+  """Description of the command"""
+
+  positional_arg: str = cc.arg(help="A positional argument")
+  optional_arg: str = cc.arg(help="An optional argument", default="default value")
+  flag_arg: bool = cc.arg(help="A flag argument", default=True, abrv="f")
+  choice_arg: Choices = cc.arg(help="A choice argument", default=Choices.choice1, choices=Choices)
+
+  def __post_init__(self) -> None:
+    # Any additional setup can be done here
+    pass
+
+  def __call__(self) -> int:
+
+    # The command's logic goes here
+    print(self)
+    return 0
+
 
 if __name__ == "__main__":
-  setup(
-    version=_info.__version__
-  )
+  CommandName.execute()

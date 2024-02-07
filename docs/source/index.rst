@@ -8,11 +8,18 @@ Welcome to Command Creator's documentation!
 
 .. autosummary::
    :toctree: _autosummary
-   :caption: Contents:
    :template: module-template.rst
    :recursive:
 
    command_creator
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Contents:
+
+   example
+   license
+   contributors
 
 Indices and tables
 ==================
