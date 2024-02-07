@@ -40,7 +40,7 @@ html_static_path = []
 # -- Generate some documentation at runtime -----------------------------------
 _conf_root = pathlib.Path(__file__).parent
 _tmp_dir = _conf_root.parent.joinpath("build", "_tmp")
-_tmp_dir.mkdir(exist_ok=True)
+_tmp_dir.mkdir(exist_ok=True, parents=True)
 _examples_spec = importlib.util.spec_from_file_location(
                                    "examples.example",
                                    _conf_root.parent.parent.joinpath("examples", "example.py")
