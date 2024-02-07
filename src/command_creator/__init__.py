@@ -24,13 +24,14 @@ from dataclasses import Field, dataclass, MISSING, fields
 from enum import Enum
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
+import re
 
 #####################################################################################
 # Version Information
 #####################################################################################
 from command_creator._info import __version__
 
-version_info = [int(x) if x.isdigit() else x for x in __version__.split(".")]
+version_info = [int(x) if x.isdigit() else x for x in re.split("\.|-", __version__)]
 
 
 #####################################################################################
