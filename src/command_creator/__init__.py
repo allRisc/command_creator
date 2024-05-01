@@ -17,9 +17,9 @@
 #####################################################################################
 
 from __future__ import annotations
-import sys
-from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar
+from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn
 
+import sys
 from dataclasses import Field, dataclass, MISSING, fields
 from enum import Enum
 from abc import ABC, abstractmethod
@@ -306,7 +306,7 @@ class Command(ABC):
     return cls(**arg_dict)
 
   @classmethod
-  def execute(cls: Type[CommandT]) -> None:
+  def execute(cls: Type[CommandT]) -> NoReturn:
     """Execute the command and exit with the return code
     """
     parser = cls.create_parser()
