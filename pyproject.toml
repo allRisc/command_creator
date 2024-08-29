@@ -49,5 +49,6 @@ Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://command-creator.readthedocs.io/en/latest/index.html"
 
 [project.optional-dependencies]
+argcomplete = ["argcomplete"]
 dev = ["flake8", "mypy", "tox", "pytest", "sphinx", "sphinx-rtd-theme"]
 docs = ['sphinx', 'sphinx-rtd-theme']
