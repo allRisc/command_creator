@@ -298,7 +298,7 @@ class Command(ABC):
         elif isinstance(fld.choices, Enum):
           kwargs['choices'] = [str(e).replace(fld.choices.__name__ + ".", "") for e in fld.choices]
         elif _is_enum(types[fld.name]):
-          pass
+          kwargs['choices'] = [str(e).replace(types[fld.name].__name__ + ".", "") for e in types[fld.name]]
         else:
           raise ValueError(
             f"Field {fld.name} has an invalid type for choices" +
@@ -361,6 +361,9 @@ class Command(ABC):
         )
 
       arg_dict[fld.name] = getattr(args, fld.name)
+
+      if hasattr(types[fld.name], "__call__"):
+        arg_dict[fld.name] = types[fld.name](arg_dict[fld.name])
 
       if _is_list(types[fld.name]) and fld.optional:
         if arg_dict[fld.name] is None:
