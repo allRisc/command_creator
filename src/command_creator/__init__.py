@@ -17,7 +17,9 @@
 #####################################################################################
 
 from __future__ import annotations
-from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn
+from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, Union
+from types import UnionType, NoneType
+import typing
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -48,6 +50,60 @@ class InvalidArgumentError(Exception):
 #####################################################################################
 SUCCESS = 0
 FAILURE = 1
+
+
+#####################################################################################
+# Typeing helpers
+#####################################################################################
+def _is_type(hint: Any, t: type) -> bool:
+  if typing.get_origin(hint) is t:
+    return True
+  if hint is t:
+    return True
+
+  if typing.get_origin(hint) is Union or typing.get_origin(hint) is UnionType:
+    args = typing.get_args(hint)
+    print(args)
+    if len(args) == 1 and args[0] is t:
+      return True
+    if len(args) == 2 and t in args and (None in args or NoneType in args):
+      return True
+
+  if typing.get_origin(hint) is list:
+    args = typing.get_args(hint)
+    print(args)
+    if len(args) == 1 and args[0] is t:
+      return True
+
+  return False
+
+
+def _is_str(hint: Any) -> bool:
+  return _is_type(hint, str)
+
+
+def _is_int(hint: Any) -> bool:
+  return _is_type(hint, int)
+
+
+def _is_float(hint: Any) -> bool:
+  return _is_type(hint, float)
+
+
+def _is_bool(hint: Any) -> bool:
+  return _is_type(hint, bool)
+
+
+def _is_list(hint: Any) -> bool:
+  return _is_type(hint, list)
+
+
+def _is_enum(hint: Any) -> bool:
+  if isinstance(hint, type):
+    if issubclass(hint, Enum):
+      return True
+
+  return False
 
 
 #####################################################################################
@@ -189,6 +245,8 @@ class Command(ABC):
     Args:
         parser (ArgumentParser): The parser to add arguments to
     """
+    types = typing.get_type_hints(cls)
+
     for fld in fields(cls):
       if "ClassVar" in str(fld.type):
         continue
@@ -202,22 +260,29 @@ class Command(ABC):
 
       kwargs: dict[str, Any] = dict()
 
-      if 'list' in fld.type:
+      print(f"{fld.name=}")
+      print(types[fld.name])
+      print(typing.get_origin(types[fld.name] ))
+
+      if _is_list(types[fld.name]):
         kwargs['nargs'] = '+'
-      elif 'bool' in fld.type:
+        print("list")
+      elif _is_bool(types[fld.name]):
         if fld.default is MISSING or fld.default is False:
           kwargs['action'] = 'store_true'
           kwargs['default'] = False
         else:
           kwargs['action'] = 'store_false'
           kwargs['default'] = True
-      elif 'str' in fld.type:
+
+      if _is_str(types[fld.name]):
+        print(f"{fld.name=} is str")
         kwargs['type'] = str
-      elif 'str' in fld.type:
+      elif _is_int(types[fld.name]):
+        print(f"{fld.name=} is int")
         kwargs['type'] = int
-      elif 'int' in fld.type:
-        kwargs['type'] = int
-      elif 'float' in fld.type:
+      elif _is_float(types[fld.name]):
+        print(f"{fld.name} is float")
         kwargs['type'] = float
 
       if fld.optional:
@@ -226,11 +291,14 @@ class Command(ABC):
         else:
           kwargs['nargs'] = '*'
 
-      if fld.choices is not None:
+      if fld.choices is not None or _is_enum(types[fld.name]):
+        print("Enum")
         if isinstance(fld.choices, list):
           kwargs['choices'] = fld.choices
-        elif issubclass(fld.choices, Enum):
+        elif isinstance(fld.choices, Enum):
           kwargs['choices'] = [str(e).replace(fld.choices.__name__ + ".", "") for e in fld.choices]
+        elif _is_enum(types[fld.name]):
+          pass
         else:
           raise ValueError(
             f"Field {fld.name} has an invalid type for choices" +
@@ -281,6 +349,8 @@ class Command(ABC):
     """
     arg_dict = {}
 
+    types = typing.get_type_hints(cls)
+
     for fld in fields(cls):
       if not isinstance(fld, CmdArgument):
         if fld.name == "sub_command":
@@ -292,7 +362,7 @@ class Command(ABC):
 
       arg_dict[fld.name] = getattr(args, fld.name)
 
-      if 'list' in fld.type and fld.optional:
+      if _is_list(types[fld.name]) and fld.optional:
         if arg_dict[fld.name] is None:
           arg_dict[fld.name] = []
         elif len(arg_dict[fld.name]) == 0:
