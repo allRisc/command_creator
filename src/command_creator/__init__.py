@@ -55,47 +55,39 @@ FAILURE = 1
 #####################################################################################
 # Typeing helpers
 #####################################################################################
-def _is_type(hint: Any, t: type) -> bool:
-  if typing.get_origin(hint) is t:
-    return True
-  if hint is t:
-    return True
-
-  if typing.get_origin(hint) is Union or typing.get_origin(hint) is UnionType:
+def _type_callable(hint: Any) -> Type | None:
+  origin = typing.get_origin(hint)
+  if origin is Union or origin is UnionType:
     args = typing.get_args(hint)
-    print(args)
-    if len(args) == 1 and args[0] is t:
-      return True
-    if len(args) == 2 and t in args and (None in args or NoneType in args):
-      return True
-
-  if typing.get_origin(hint) is list:
+    if len(args) > 2:
+      return None
+    if len(args) == 2:
+      if args[0] in (None, NoneType) and callable(args[1]):
+        return args[1]
+      if args[1] in (None, NoneType) and callable(args[0]):
+        return args[0]
+      return None
+    if len(args) == 1 and callable(args[0]):
+      return args[0]
+  elif origin is list:
     args = typing.get_args(hint)
-    print(args)
-    if len(args) == 1 and args[0] is t:
-      return True
+    if len(args) == 1 and callable(args[0]):
+      return args[0]
+    return None
+  elif origin is not None:
+    return None
 
-  return False
-
-
-def _is_str(hint: Any) -> bool:
-  return _is_type(hint, str)
-
-
-def _is_int(hint: Any) -> bool:
-  return _is_type(hint, int)
-
-
-def _is_float(hint: Any) -> bool:
-  return _is_type(hint, float)
-
-
-def _is_bool(hint: Any) -> bool:
-  return _is_type(hint, bool)
+  if callable(hint):
+    return hint
+  return None
 
 
 def _is_list(hint: Any) -> bool:
-  return _is_type(hint, list)
+  if typing.get_origin(hint) is list:
+    return True
+  if hint is list:
+    return True
+  return False
 
 
 def _is_enum(hint: Any) -> bool:
@@ -260,30 +252,20 @@ class Command(ABC):
 
       kwargs: dict[str, Any] = dict()
 
-      print(f"{fld.name=}")
-      print(types[fld.name])
-      print(typing.get_origin(types[fld.name] ))
-
       if _is_list(types[fld.name]):
         kwargs['nargs'] = '+'
-        print("list")
-      elif _is_bool(types[fld.name]):
+
+      callable_type = _type_callable(types[fld.name])
+
+      if callable_type is bool:
         if fld.default is MISSING or fld.default is False:
           kwargs['action'] = 'store_true'
           kwargs['default'] = False
         else:
           kwargs['action'] = 'store_false'
           kwargs['default'] = True
-
-      if _is_str(types[fld.name]):
-        print(f"{fld.name=} is str")
-        kwargs['type'] = str
-      elif _is_int(types[fld.name]):
-        print(f"{fld.name=} is int")
-        kwargs['type'] = int
-      elif _is_float(types[fld.name]):
-        print(f"{fld.name} is float")
-        kwargs['type'] = float
+      elif callable_type is not None:
+        kwargs['type'] = callable_type
 
       if fld.optional:
         if 'nargs' not in kwargs:
@@ -292,7 +274,6 @@ class Command(ABC):
           kwargs['nargs'] = '*'
 
       if fld.choices is not None or _is_enum(types[fld.name]):
-        print("Enum")
         if isinstance(fld.choices, list):
           kwargs['choices'] = fld.choices
         elif isinstance(fld.choices, Enum):
@@ -361,9 +342,6 @@ class Command(ABC):
         )
 
       arg_dict[fld.name] = getattr(args, fld.name)
-
-      if hasattr(types[fld.name], "__call__"):
-        arg_dict[fld.name] = types[fld.name](arg_dict[fld.name])
 
       if _is_list(types[fld.name]) and fld.optional:
         if arg_dict[fld.name] is None:
