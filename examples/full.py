@@ -25,6 +25,8 @@ import command_creator as cc
 import enum
 import pathlib
 
+from argcomplete.completers import ChoicesCompleter
+
 
 class Choices(enum.StrEnum):
     CHOICE1 = enum.auto()
@@ -52,6 +54,10 @@ class Full(cc.Command):
     )
     args: list[str] = cc.arg(default_factory=list)
     seed: int | None = cc.arg(default=None)
+    test: str | None = cc.arg(
+        default=None,
+        completer=ChoicesCompleter(["test_base", "test_spi", "test_i2c"])
+    )
 
     def __post_init__(self) -> None:
         pass

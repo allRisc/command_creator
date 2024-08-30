@@ -30,6 +30,7 @@ import re
 
 try:
   import argcomplete
+  from argcomplete.completers import BaseCompleter
 except ModuleNotFoundError:
   _has_argcomplete = False
 else:
@@ -125,7 +126,7 @@ def _is_enum(hint: Any) -> bool:
 class CmdArgument(Field):
   """Class which represents a command-line argument
   """
-  __slots__ = ("help", "abrv", "choices", "optional")
+  __slots__ = ("help", "abrv", "choices", "optional", "completer")
 
   def __init__(
         self,
@@ -133,6 +134,7 @@ class CmdArgument(Field):
         abrv: str | None = None,
         choices: list[str] | type[Enum] | None = None,
         optional: bool = False,
+        completer: Any = None,
         default: Any = MISSING,
         default_factory: Callable[[], Any] = lambda: MISSING,
         init: bool = True,
@@ -156,12 +158,22 @@ class CmdArgument(Field):
     self.choices = choices
     self.optional = optional
 
+    if _has_argcomplete:
+      self.completer = completer
+    elif completer is not None:
+      raise InvalidArgumentError(
+        "Completer argument specified when 'argcomplete' package not installed"
+      )
+    else:
+      self.completer = None
+
 
 def arg(
       help: str = "",
       abrv: str | None = None,
       choices: list[str] | type[Enum] | None = None,
       optional: bool = False,
+      completer: BaseCompleter | None = None,
       default: Any = MISSING,
       default_factory: Callable[[], Any] = lambda: MISSING,
       init: bool = True,
@@ -205,6 +217,7 @@ def arg(
     abrv=abrv,
     choices=choices,
     optional=optional,
+    completer=completer,
     default=default,
     default_factory=default_factory,
     init=init,
@@ -317,11 +330,11 @@ class Command(ABC):
       kwargs['help'] = fld.help
 
       if fld.default is MISSING and fld.default_factory is MISSING:
-        parser.add_argument(fld.name, **kwargs)
+        parser.add_argument(fld.name, **kwargs).completer = fld.completer
       elif fld.abrv is not None:
-        parser.add_argument(f"--{fld.name}", f"-{fld.abrv}", **kwargs)
+        parser.add_argument(f"--{fld.name}", f"-{fld.abrv}", **kwargs).completer = fld.completer
       else:
-        parser.add_argument(f"--{fld.name}", **kwargs)
+        parser.add_argument(f"--{fld.name}", **kwargs).completer = fld.completer
 
   @classmethod
   def _add_sub_commands(cls, parser: ArgumentParser) -> None:
