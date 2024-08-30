@@ -279,7 +279,9 @@ class Command(ABC):
         elif isinstance(fld.choices, Enum):
           kwargs['choices'] = [str(e).replace(fld.choices.__name__ + ".", "") for e in fld.choices]
         elif _is_enum(types[fld.name]):
-          kwargs['choices'] = [str(e).replace(types[fld.name].__name__ + ".", "") for e in types[fld.name]]
+          kwargs['choices'] = [
+            str(e).replace(types[fld.name].__name__ + ".", "") for e in types[fld.name]
+          ]
         else:
           raise ValueError(
             f"Field {fld.name} has an invalid type for choices" +
