@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #####################################################################################
 # A package to simplify the creation of Python Command-Line tools
 # Copyright (C) 2023  Benjamin Davis

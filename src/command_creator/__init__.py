@@ -28,6 +28,27 @@ from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace
 import re
 
+try:
+  import argcomplete
+except ModuleNotFoundError:
+  _has_argcomplete = False
+else:
+  _has_argcomplete = True
+
+
+__all__ = [
+  'version_info',
+  'InvalidArgumentError',
+  'SUCCESS',
+  'FAILURE',
+  'CmdArgument',
+  'arg',
+  'Command',
+  'CommandT',
+  'dataclass'
+]
+
+
 #####################################################################################
 # Version Information
 #####################################################################################
@@ -227,6 +248,8 @@ class Command(ABC):
       description=cls.__doc__,
     )
     cls._add_args(parser)
+    if _has_argcomplete:
+      argcomplete.autocomplete(parser)
     cls._add_sub_commands(parser)
     return parser
 
