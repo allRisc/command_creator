@@ -333,7 +333,7 @@ class Command(ABC):
       if arg_name.startswith("-"):
         last_flag = arg_name
         break
-      else :
+      else:
         last_choice = arg_name
 
     if last_flag is not None:
@@ -376,7 +376,7 @@ class Command(ABC):
         if fld.choices is not None:
           for choice in fld.choices:
             print(choice)
-      else :
+      else:
         print(f"--{fld.name}")
         if fld.abrv is not None:
           print(f"-{fld.abrv}")
