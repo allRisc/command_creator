@@ -314,6 +314,73 @@ class Command(ABC):
     cmd = cls.from_args(args)
     exit(cmd())
 
+  @classmethod
+  def auto_complete(cls: Type[CommandT]) -> None:
+    """Print the auto-complete options for the command
+    """
+    # Check if we are in a sub-command
+    for sub_cmd_name, sub_cmd in cls.sub_commands.items():
+      if sub_cmd_name in sys.argv:
+        sub_cmd.auto_complete()
+        return
+
+    # Check if we are in a choice
+    last_flag = None
+    last_choice = None
+    for arg_name in reversed(sys.argv):
+      if arg_name == sys.argv[0]:
+        break
+      if arg_name.startswith("-"):
+        last_flag = arg_name
+        break
+      else:
+        last_choice = arg_name
+
+    if last_flag is not None:
+      last_flag = last_flag.replace("-", "")
+
+      for fld in fields(cls):
+        if not isinstance(fld, CmdArgument):
+          if fld.name == "sub_command":
+            continue
+          raise InvalidArgumentError(
+            f"Field {fld.name} is not a CmdArgument" +
+            " Did you use field() instead of arg()?"
+          )
+        if fld.name == last_flag or fld.abrv == last_flag:
+          if fld.choices is not None:
+            if last_choice is not None and last_choice in fld.choices:
+              if 'list' in fld.type:
+                for choice in fld.choices:
+                  print(choice)
+                break
+
+            for choice in fld.choices:
+              print(choice)
+            return
+
+    # Otherwise print the options
+    for sub_cmd_name in cls.sub_commands.keys():
+      print(sub_cmd_name)
+
+    for fld in fields(cls):
+      if not isinstance(fld, CmdArgument):
+        if fld.name == "sub_command":
+          continue
+        raise InvalidArgumentError(
+          f"Field {fld.name} is not a CmdArgument" +
+          " Did you use field() instead of arg()?"
+        )
+
+      if fld.default is MISSING and fld.default_factory is MISSING:
+        if fld.choices is not None:
+          for choice in fld.choices:
+            print(choice)
+      else:
+        print(f"--{fld.name}")
+        if fld.abrv is not None:
+          print(f"-{fld.abrv}")
+
 
 #####################################################################################
 # Type Information
