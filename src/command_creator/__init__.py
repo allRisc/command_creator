@@ -282,7 +282,7 @@ class Command(ABC):
             if fld.default is MISSING and fld.default_factory is MISSING:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
-                name = fld.name if not '_' in fld.name else fld.name.replace('_', '-')
+                name = fld.name if '_' not in fld.name else fld.name.replace('_', '-')
                 kwargs['dest'] = fld.name
                 if fld.abrv is not None:
                     action = parser.add_argument(f"--{name}", f"-{fld.abrv}", **kwargs)
