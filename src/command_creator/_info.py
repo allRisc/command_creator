@@ -19,5 +19,5 @@
 from __future__ import annotations
 
 
-__version__: str = "2.0.0a0"
+__version__: str = "2.0.0a1"
 __author__: str = "Benjamin Davis"

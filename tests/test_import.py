@@ -16,8 +16,8 @@
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
 
-import command_creator
+import command_creator._info
 
 
 def test_import():
-    print(command_creator.version_info)
+    print(command_creator._info)
