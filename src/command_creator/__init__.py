@@ -17,7 +17,7 @@
 #####################################################################################
 
 from __future__ import annotations
-from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias
+from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -30,7 +30,12 @@ import argcomplete
 __all__ = [
     "InvalidArgumentError",
     "Command",
-    "arg"
+    "arg",
+    "CompleterList",
+    "CompleterDict",
+    "CompleterIter",
+    "CompleterFunc",
+    "Completer",
 ]
 
 
@@ -46,11 +51,20 @@ class InvalidArgumentError(Exception):
 #####################################################################################
 # General Type-Hinting
 #####################################################################################
-CompleterList: TypeAlias = list[str]
-CompleterDict: TypeAlias = dict[str, str]
-CompleterIter: TypeAlias = CompleterList | CompleterDict
-CompleterFunc: TypeAlias = Callable[[str, Action, ArgumentParser, Namespace], CompleterIter]
-Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
+if sys.version_info >= (3, 10):
+    from typing import TypeAlias
+    CompleterList: TypeAlias = list[str]
+    CompleterDict: TypeAlias = dict[str, str]
+    CompleterIter: TypeAlias = CompleterList | CompleterDict
+    CompleterFunc: TypeAlias = Callable[[str, Action, ArgumentParser, Namespace], CompleterIter]
+    Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
+else:
+    from typing import List, Dict, Union
+    CompleterList = List[str]
+    CompleterDict = Dict[str, str]
+    CompleterIter = Union[CompleterList, CompleterDict]
+    CompleterFunc = Callable[[str, Action, ArgumentParser, Namespace], CompleterIter]
+    Completer = Union[CompleterFunc, CompleterDict, CompleterList]
 
 
 #####################################################################################
