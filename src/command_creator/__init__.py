@@ -23,6 +23,7 @@ import sys
 from dataclasses import Field, dataclass, MISSING, fields
 from enum import Enum
 from abc import ABC, abstractmethod
+import io
 from argparse import ArgumentParser, Namespace, Action
 
 import argcomplete
@@ -194,21 +195,22 @@ class Command(ABC):
         pass
 
     @classmethod
-    def create_parser(cls: Type[CommandT]) -> ArgumentParser:
+    def create_parser(cls: Type[CommandT], doc_mode: bool = False) -> ArgumentParser:
         parser = ArgumentParser(
             prog=cls.__name__.lower(),
             description=cls.__doc__,
         )
-        cls._add_args(parser)
-        cls._add_sub_commands(parser)
+        cls._add_args(parser, doc_mode)
+        cls._add_sub_commands(parser, doc_mode)
         return parser
 
     @classmethod
-    def _add_args(cls, parser: ArgumentParser) -> None:
+    def _add_args(cls, parser: ArgumentParser, doc_mode: bool = False) -> None:
         """Add arguments to the parser
 
         Args:
-                parser (ArgumentParser): The parser to add arguments to
+            parser (ArgumentParser): The parser to add arguments to
+            doc_mode (bool): Force the args to use metavars instead of options
         """
         for fld in fields(cls):
             if "ClassVar" in str(fld.type):
@@ -279,6 +281,11 @@ class Command(ABC):
 
             kwargs['help'] = fld.help
 
+            if doc_mode:
+                if 'choices' in kwargs:
+                    kwargs.pop('choices')
+                    kwargs['metavar'] = fld.name.upper()
+
             if fld.default is MISSING and fld.default_factory is MISSING:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
@@ -293,11 +300,11 @@ class Command(ABC):
                 action.completer = fld.completer  # type: ignore[attr-defined]
 
     @classmethod
-    def _add_sub_commands(cls, parser: ArgumentParser) -> None:
+    def _add_sub_commands(cls, parser: ArgumentParser, doc_mode: bool = False) -> None:
         """Add sub-commands to the parser
 
         Args:
-                parser (ArgumentParser): The parser to add sub-commands to
+            parser (ArgumentParser): The parser to add sub-commands to
         """
         if len(cls.sub_commands) == 0:
             return
@@ -312,18 +319,18 @@ class Command(ABC):
                 sub_cmd_name,
                 usage=sub_cmd.__doc__,
             )
-            sub_cmd._add_args(sub_parser)
-            sub_cmd._add_sub_commands(sub_parser)
+            sub_cmd._add_args(sub_parser, doc_mode)
+            sub_cmd._add_sub_commands(sub_parser, doc_mode)
 
     @classmethod
     def from_args(cls: Type[CommandT], args: Namespace) -> CommandT:
         """Create a command from a list of arguments
 
         Args:
-                args (list[str]): The arguments to create the command from
+            args (list[str]): The arguments to create the command from
 
         Returns:
-                CommandT: The created command
+            CommandT: The created command
         """
         arg_dict = {}
 
