@@ -316,7 +316,7 @@ class Command(ABC):
         for sub_cmd_name, sub_cmd in cls.sub_commands.items():
             sub_parser = sub_parsers.add_parser(
                 sub_cmd_name,
-                usage=sub_cmd.__doc__,
+                description=sub_cmd.__doc__,
             )
             sub_cmd._add_args(sub_parser, doc_mode)
             sub_cmd._add_sub_commands(sub_parser, doc_mode)
