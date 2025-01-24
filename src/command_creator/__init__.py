@@ -180,7 +180,6 @@ class Command(ABC):
     sub_commands: ClassVar[dict[str, Type[Command]]] = dict()
     sub_command: Command | None
 
-    @abstractmethod
     def __post_init__(self) -> None:
         """This method must be implemented by subclasses in order to setup variables or
         post-process any user inputs
