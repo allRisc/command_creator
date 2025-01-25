@@ -126,4 +126,21 @@ def test_arg_completer_list() -> None:
 
     for action in _TmpCmd.create_parser()._actions:
         if action.dest == "opt":
-            assert set(action.completer) == {0, 1, 2, 3}
+            assert set(action.choices) == {0, 1, 2, 3}
+            assert action.metavar == "OPT"
+
+
+def test_arg_completer_dict() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: int = arg(completer={0: "Zero", 1: "One"})
+
+    for action in _TmpCmd.create_parser()._actions:
+        if action.dest == "opt":
+            assert action.completer(
+                prefix="",
+                action=action,
+                parser=_TmpCmd.create_parser(),
+                parsed_args=argparse.Namespace()
+            ) == {0: "Zero", 1: "One"}
+            assert action.metavar == "OPT"

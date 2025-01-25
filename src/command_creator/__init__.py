@@ -17,7 +17,10 @@
 #####################################################################################
 
 from __future__ import annotations
-from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias
+from typing import (
+    Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias, TypedDict,
+    Unpack
+)
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -47,10 +50,16 @@ class InvalidArgumentError(Exception):
 #####################################################################################
 # General Type-Hinting
 #####################################################################################
+class CompleterArgs(TypedDict):
+    prefix: str
+    action: Action
+    parser: ArgumentParser
+    parsed_args: Namespace
+
 CompleterList: TypeAlias = list[str]
 CompleterDict: TypeAlias = dict[str, str]
 CompleterIter: TypeAlias = CompleterList | CompleterDict
-CompleterFunc: TypeAlias = Callable[[str, Action, ArgumentParser, Namespace], CompleterIter]
+CompleterFunc: TypeAlias = Callable[[CompleterArgs], CompleterIter]
 Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
 
 
@@ -266,8 +275,10 @@ class Command(ABC):
                         f"Field {fld.name} has an invalid type for choices" +
                         " Did you use an Enum or a list?"
                     )
-            elif isinstance(fld.completer, list) or isinstance(fld.completer, dict):
+            elif isinstance(fld.completer, list):
                 kwargs['choices'] = fld.completer
+                kwargs['metavar'] = fld.name.upper()
+            elif fld.completer is not None:
                 kwargs['metavar'] = fld.name.upper()
 
             if fld.metavar is not None:
@@ -302,7 +313,11 @@ class Command(ABC):
                 else:
                     action = parser.add_argument(f"--{name}", **kwargs)
 
-            if fld.completer is not None and callable(fld.completer):
+            if fld.completer is not None and isinstance(fld.completer, dict):
+                def _completer(**kwargs: Unpack[CompleterArgs]):
+                    return fld.completer
+                action.completer = _completer
+            elif fld.completer is not None and callable(fld.completer):
                 action.completer = fld.completer  # type: ignore[attr-defined]
 
     @classmethod
