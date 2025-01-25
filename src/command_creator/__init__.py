@@ -285,7 +285,7 @@ class Command(ABC):
                     kwargs.pop('choices')
                     kwargs['metavar'] = fld.name.upper()
 
-            if fld.default is MISSING and fld.default_factory is MISSING:
+            if fld.optional or fld.default is MISSING and fld.default_factory is MISSING:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
                 name = fld.name if '_' not in fld.name else fld.name.replace('_', '-')

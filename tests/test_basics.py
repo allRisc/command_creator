@@ -21,6 +21,7 @@ from __future__ import annotations
 from enum import Enum
 from command_creator import Command, arg
 from dataclasses import dataclass
+import argparse
 
 import pytest
 
@@ -85,3 +86,31 @@ def test_arg_choices_enum() -> None:
 
     cmd = _TmpCmd.from_args(args)
     assert cmd.opt == _TmpEnum.B
+
+    with pytest.raises(SystemExit):
+        args = _TmpCmd.create_parser().parse_args("D".split())
+
+
+def test_arg_optional() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt1: str | None = arg(optional=True)
+        opt2: str = arg(optional=True, default="default_opt2")
+
+    for action in _TmpCmd.create_parser()._actions:
+        if action.dest == "help":
+            continue
+        assert len(action.option_strings) == 0
+
+    args = _TmpCmd.create_parser().parse_args("".split())
+    assert args.opt1 is None
+    assert args.opt2 == "default_opt2"
+
+
+def test_arg_count() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: int = arg(count=True)
+
+    args = _TmpCmd.create_parser().parse_args(["--opt"] * 5)
+    assert args.opt == 5
