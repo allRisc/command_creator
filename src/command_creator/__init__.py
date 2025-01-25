@@ -238,8 +238,6 @@ class Command(ABC):
                     kwargs['default'] = True
             elif 'str' in fld.type:
                 kwargs['type'] = str
-            elif 'str' in fld.type:
-                kwargs['type'] = int
             elif 'int' in fld.type:
                 kwargs['type'] = int
             elif 'float' in fld.type:
@@ -285,7 +283,16 @@ class Command(ABC):
                     kwargs.pop('choices')
                     kwargs['metavar'] = fld.name.upper()
 
-            if fld.optional or fld.default is MISSING and fld.default_factory is MISSING:
+            # Determine whether the argument is positional
+            positional = False
+            if fld.optional:
+                positional = True
+            if fld.default is MISSING and fld.default_factory is MISSING:
+                positional = True
+            if fld.count:
+                positional = False
+
+            if positional:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
                 name = fld.name if '_' not in fld.name else fld.name.replace('_', '-')

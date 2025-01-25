@@ -112,5 +112,18 @@ def test_arg_count() -> None:
     class _TmpCmd(Command):
         opt: int = arg(count=True)
 
+    _TmpCmd.create_parser().print_help()
     args = _TmpCmd.create_parser().parse_args(["--opt"] * 5)
     assert args.opt == 5
+    args = _TmpCmd.create_parser().parse_args(["--opt"] * 7)
+    assert args.opt == 7
+
+
+def test_arg_completer_list() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: int = arg(completer=[0, 1, 2, 3])
+
+    for action in _TmpCmd.create_parser()._actions:
+        if action.dest == "opt":
+            assert set(action.completer) == {0, 1, 2, 3}
