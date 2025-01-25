@@ -349,6 +349,8 @@ class Command(ABC):
                     arg_dict[fld.name] = []
                 elif len(arg_dict[fld.name]) == 0:
                     arg_dict[fld.name] = None
+            elif issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
+                arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
 
         if len(cls.sub_commands) != 0 and args.sub_command is not None:
             arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
