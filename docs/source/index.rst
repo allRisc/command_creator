@@ -27,9 +27,8 @@ Welcome to Command Creator's documentation!
    :maxdepth: 2
    :caption: Contents:
 
-   example
+   users_guide
    license
-   contributors
 
 Indices and tables
 ==================

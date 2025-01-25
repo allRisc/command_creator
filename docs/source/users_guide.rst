@@ -1,4 +1,4 @@
-Example Usage
+User's Guide
 =============
 
 This is an example of how the command creator package might be used to create a simple command
