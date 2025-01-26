@@ -198,7 +198,7 @@ class Command(ABC):
     """The sub-command found during argument parsing. None if one not found"""
 
     def __post_init__(self) -> None:
-        """This method must be implemented by subclasses in order to setup variables or
+        """This method may be implemented by subclasses in order to setup variables or
         post-process any user inputs
         """
         pass
@@ -212,6 +212,15 @@ class Command(ABC):
 
     @classmethod
     def create_parser(cls: Type[CommandT], doc_mode: bool = False) -> ArgumentParser:
+        """Create the argument parser for the Command using argparser library
+
+        Args:
+            doc_mode (bool, optional): Whether to force meta-data use for prettier documentation.
+                Defaults to False.
+
+        Returns:
+            ArgumentParser: The argument-parser derived from the class definition
+        """
         parser = ArgumentParser(
             prog=cls.__name__.lower(),
             description=cls.__doc__,
