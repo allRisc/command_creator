@@ -19,14 +19,12 @@
 from __future__ import annotations
 from typing import (
     Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias, TypedDict,
-    Unpack
 )
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
 from enum import Enum
 from abc import ABC, abstractmethod
-import io
 from argparse import ArgumentParser, Namespace, Action
 
 import argcomplete
@@ -56,10 +54,17 @@ class CompleterArgs(TypedDict):
     parser: ArgumentParser
     parsed_args: Namespace
 
-CompleterList: TypeAlias = list[str]
-CompleterDict: TypeAlias = dict[str, str]
+
+CompleterList: TypeAlias = list[Any]
+CompleterDict: TypeAlias = dict[Any, str]
 CompleterIter: TypeAlias = CompleterList | CompleterDict
-CompleterFunc: TypeAlias = Callable[[CompleterArgs], CompleterIter]
+
+if sys.version_info < (3, 11):
+    CompleterFunc: TypeAlias = Callable[..., CompleterIter]
+else:
+    from typing import Unpack
+    CompleterFunc: TypeAlias = Callable[[Unpack[CompleterArgs]], CompleterIter]
+
 Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
 
 
@@ -75,7 +80,7 @@ class CmdArgument(Field):
                 self,
                 help: str = "",
                 abrv: str | None = None,
-                choices: list[str] | type[Enum] | None = None,
+                choices: list[Any] | type[Enum] | None = None,
                 metavar: str | None = None,
                 optional: bool = False,
                 default: Any = MISSING,
@@ -314,9 +319,9 @@ class Command(ABC):
                     action = parser.add_argument(f"--{name}", **kwargs)
 
             if fld.completer is not None and isinstance(fld.completer, dict):
-                def _completer(**kwargs: Unpack[CompleterArgs]):
+                def _completer(**kwargs):
                     return fld.completer
-                action.completer = _completer
+                action.completer = _completer  # type: ignore[attr-defined]
             elif fld.completer is not None and callable(fld.completer):
                 action.completer = fld.completer  # type: ignore[attr-defined]
 
@@ -371,8 +376,10 @@ class Command(ABC):
                     arg_dict[fld.name] = []
                 elif len(arg_dict[fld.name]) == 0:
                     arg_dict[fld.name] = None
-            elif issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
-                arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
+            else:
+                if fld.choices is not None and not isinstance(fld.choices, list):
+                    if issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
+                        arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
 
         if len(cls.sub_commands) != 0 and args.sub_command is not None:
             arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
