@@ -25,7 +25,10 @@ from enum import Enum
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace, Action
 
-import argcomplete
+try:
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
 __all__ = [
     "InvalidArgumentError",
@@ -240,6 +243,9 @@ class Command(ABC):
             if fld.count and fld.type != 'int':
                 raise ValueError(f"Field ({fld.name}) with count=True has type {fld.type}!=int")
 
+            if argcomplete is None and fld.completer is not None:
+                raise ValueError("Completer provided without argcomplete package installed...")
+
             if 'list' in fld.type:
                 kwargs['nargs'] = '+'
             elif 'bool' in fld.type:
@@ -370,7 +376,8 @@ class Command(ABC):
         """Execute the command and exit with the return code
         """
         parser = cls.create_parser()
-        argcomplete.autocomplete(parser)
+        if argcomplete is not None:
+            argcomplete.autocomplete(parser)
         args = parser.parse_args()
         cmd = cls.from_args(args)
         exit(cmd())
