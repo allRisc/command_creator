@@ -74,7 +74,7 @@ Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
 class CmdArgument(Field):
     """Class which represents a command-line argument
     """
-    __slots__ = ("help", "abrv", "choices", "optional", "count", "completer", "metavar")
+    __slots__ = ("help", "abrv", "choices", "positional", "count", "completer", "metavar")
 
     def __init__(
                 self,
@@ -82,7 +82,7 @@ class CmdArgument(Field):
                 abrv: str | None = None,
                 choices: list[Any] | type[Enum] | None = None,
                 metavar: str | None = None,
-                optional: bool = False,
+                positional: bool = False,
                 default: Any = MISSING,
                 default_factory: Callable[[], Any] = lambda: MISSING,
                 init: bool = True,
@@ -104,10 +104,11 @@ class CmdArgument(Field):
             self.default_factory = MISSING
 
         self.help = help
+        """The help string used for the argument"""
         self.abrv = abrv
         self.choices = choices
         self.metavar = metavar
-        self.optional = optional
+        self.positional = positional
         self.count = count
         self.completer = completer
 
@@ -117,7 +118,7 @@ def arg(
             abrv: str | None = None,
             choices: list[str] | type[Enum] | None = None,
             metavar: str | None = None,
-            optional: bool = False,
+            positional: bool = False,
             default: Any = MISSING,
             default_factory: Callable[[], Any] = lambda: MISSING,
             init: bool = True,
@@ -138,7 +139,7 @@ def arg(
                 Defaults to None.
             metavar (str | None) : The metavar to use when displaying argument help info.
                 Defaults to None.
-            optional (bool, optional): Whether the argument is optional. Defaults to False.
+            positional (bool, optional): Whether the argument is positional. Defaults to False.
             default (Any, optional): Default value for the argument. Defaults to MISSING.
             default_factory (Callable[[], Any], optional): Default factory for the argument.
                 Defaults to lambda: MISSING.
@@ -169,7 +170,7 @@ def arg(
         abrv=abrv,
         choices=choices,
         metavar=metavar,
-        optional=optional,
+        positional=positional,
         default=default,
         default_factory=default_factory,
         init=init,
@@ -192,7 +193,9 @@ class Command(ABC):
     """
 
     sub_commands: ClassVar[dict[str, Type[Command]]] = dict()
+    """A dictionary mapping the sub-command name to the respective sub-command"""
     sub_command: Command | None
+    """The sub-command found during argument parsing. None if one not found"""
 
     def __post_init__(self) -> None:
         """This method must be implemented by subclasses in order to setup variables or
@@ -262,7 +265,7 @@ class Command(ABC):
                     kwargs.pop('type')
                 kwargs['action'] = 'count'
 
-            if fld.optional:
+            if fld.positional:
                 if 'nargs' not in kwargs:
                     kwargs['nargs'] = '?'
                 else:
@@ -301,7 +304,7 @@ class Command(ABC):
 
             # Determine whether the argument is positional
             positional = False
-            if fld.optional:
+            if fld.positional:
                 positional = True
             if fld.default is MISSING and fld.default_factory is MISSING:
                 positional = True
@@ -371,7 +374,7 @@ class Command(ABC):
 
             arg_dict[fld.name] = getattr(args, fld.name)
 
-            if 'list' in fld.type and fld.optional:
+            if 'list' in fld.type and fld.positional:
                 if arg_dict[fld.name] is None:
                     arg_dict[fld.name] = []
                 elif len(arg_dict[fld.name]) == 0:
