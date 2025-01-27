@@ -27,8 +27,8 @@ This is done using the ``@dataclass`` decorator, ``command_creator.arg`` method,
         )
         extra_positional: str = arg(
             default="Not-Given",
-            optional=True,
-            help="This is an extra positional argument, since it has 'optional=True'"
+            positional=True,
+            help="This is an extra positional argument, since it has 'positional=True'"
         )
         option: bool = arg(
             default=False,
@@ -97,23 +97,41 @@ Command Creator uses 3-indicators to determine whether an arugment should be int
 help
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+The ``help`` argument takes a string which is used for the help message of the command
+
 abrv
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``abrv`` argument takes a string which is used as the ``-[abrv]`` abreviated option.
 
 choices
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+The ``choices`` argument takes a list or enum type which sets the valid inputs to the option/positional argument.
+If the provided argument is a subclass of the paython standard ``Enum`` then the options are the uppercase names of the enumerated values.
+
 metavar
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``metavar`` argument takes a string which is used as the ``METAVAR`` in the help string.
 
 positional
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+The ``positional`` argument takes a boolean.
+When true it forces the argument to be positional rather than an option.
+
 default and default_factory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Provides defaults to the underlying argument if it is not specified on the command-line.
+``default_factory`` is a callable that can be used to create new objects at run-time.
+See the Python ``dataclasses`` module documentation for more details.
+
 count
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+
 
 completer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -124,9 +142,28 @@ Sub-commands
 .. code-block:: python
 
     @dataclass
+    class ReusableSubCommand(Command):
+        opt1: str = arg()
+
+        def __call__(self) -> int:
+            print("A sub-command which can be used across a variety of contexts")
+            return 0
+
+    @dataclass
     class ParentCommand(Command):
 
-        sub_commands = {}
+        @dataclass
+        class SpecificSubCommand(Command):
+            opt2: str = arg()
+
+            def __call__(self) -> int:
+                print("A sub-command for use only in this parent command")
+                return 0
+
+        sub_commands = {
+            "specific": SpecificSubCommand,
+            "reusable": ReusableSubCommand,
+        }
 
         def __call__(self) -> int:
             if self.sub_command is not None:
