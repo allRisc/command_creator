@@ -183,7 +183,7 @@ def arg(
             category=DeprecationWarning,
             stacklevel=3
         )
-        positional = positional or bool(kwargs['optional'])
+        positional = positional or bool(kwargs.pop('optional'))
 
     return CmdArgument(
         help=help,
