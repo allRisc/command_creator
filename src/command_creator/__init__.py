@@ -23,6 +23,8 @@ from typing import (
 )
 import types
 
+import warnings
+
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
 from enum import Enum
@@ -174,6 +176,14 @@ def arg(
     if sys.version_info >= (3, 10):
         if "kw_only" not in kwargs:
             kwargs["kw_only"] = False
+
+    if 'optional' in kwargs:
+        warnings.warn(
+            "Using deprecated argument 'optional' in command_creator.arg",
+            category=DeprecationWarning,
+            stacklevel=3
+        )
+        positional = positional or bool(kwargs['optional'])
 
     return CmdArgument(
         help=help,
