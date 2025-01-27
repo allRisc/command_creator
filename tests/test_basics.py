@@ -19,11 +19,8 @@
 from __future__ import annotations
 import sys
 
-if sys.version_info >= (3, 11):
-    from typing import Unpack
-
 from enum import Enum
-from command_creator import Command, arg, CompleterArgs
+from command_creator import Command, arg
 from dataclasses import dataclass
 import argparse
 
@@ -97,11 +94,11 @@ def test_arg_choices_enum() -> None:
         args = _TmpCmd.create_parser().parse_args("D".split())
 
 
-def test_arg_optional() -> None:
+def test_arg_positional() -> None:
     @dataclass
     class _TmpCmd(Command):
-        opt1: str | None = arg(optional=True)
-        opt2: str = arg(optional=True, default="default_opt2")
+        opt1: str | None = arg(positional=True)
+        opt2: str = arg(positional=True, default="default_opt2")
 
     for action in _TmpCmd.create_parser()._actions:
         if action.dest == "help":
@@ -154,8 +151,14 @@ def test_arg_completer_dict() -> None:
 
 
 def test_arg_completer_callable() -> None:
-    def _tmp_completer(**kwargs: Unpack[CompleterArgs]) -> dict[str, str]:
-        return {f"c{i}": f"Choice {i}" for i in range(10)}
+    if sys.version_info > (3, 10):
+        from typing import Unpack
+        from command_creator import CompleterArgs
+        def _tmp_completer(**kwargs: Unpack[CompleterArgs]) -> dict[str, str]:
+            return {f"c{i}": f"Choice {i}" for i in range(10)}
+    else:
+        def _tmp_completer(**kwargs) -> dict[str, str]:
+            return {f"c{i}": f"Choice {i}" for i in range(10)}
 
     @dataclass
     class _TmpCmd(Command):

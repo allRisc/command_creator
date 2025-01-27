@@ -18,8 +18,10 @@
 
 from __future__ import annotations
 from typing import (
-    Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias, TypedDict,
+    Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypedDict,
+    List, Dict, Union
 )
+import types
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -27,12 +29,21 @@ from enum import Enum
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace, Action
 
-import argcomplete
+try:
+    argcomplete: types.ModuleType | None
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
 __all__ = [
     "InvalidArgumentError",
     "Command",
-    "arg"
+    "arg",
+    "CompleterList",
+    "CompleterDict",
+    "CompleterIter",
+    "CompleterFunc",
+    "Completer",
 ]
 
 
@@ -55,17 +66,16 @@ class CompleterArgs(TypedDict):
     parsed_args: Namespace
 
 
-CompleterList: TypeAlias = list[Any]
-CompleterDict: TypeAlias = dict[Any, str]
-CompleterIter: TypeAlias = CompleterList | CompleterDict
-
+CompleterList = List[str]
+CompleterDict = Dict[str, str]
+CompleterIter = Union[CompleterList, CompleterDict]
 if sys.version_info < (3, 11):
-    CompleterFunc: TypeAlias = Callable[..., CompleterIter]
+    CompleterFunc = Callable[..., CompleterIter]
 else:
     from typing import Unpack
-    CompleterFunc: TypeAlias = Callable[[Unpack[CompleterArgs]], CompleterIter]
+    CompleterFunc = Callable[[Unpack[CompleterArgs]], CompleterIter]
 
-Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
+Completer = Union[CompleterFunc, CompleterDict, CompleterList]
 
 
 #####################################################################################
@@ -253,6 +263,9 @@ class Command(ABC):
             if fld.count and fld.type != 'int':
                 raise ValueError(f"Field ({fld.name}) with count=True has type {fld.type}!=int")
 
+            if argcomplete is None and fld.completer is not None:
+                raise ValueError("Completer provided without argcomplete package installed...")
+
             if 'list' in fld.type:
                 kwargs['nargs'] = '+'
             elif 'bool' in fld.type:
@@ -405,7 +418,8 @@ class Command(ABC):
         """Execute the command and exit with the return code
         """
         parser = cls.create_parser()
-        argcomplete.autocomplete(parser)
+        if argcomplete is not None:
+            argcomplete.autocomplete(parser)
         args = parser.parse_args()
         cmd = cls.from_args(args)
         exit(cmd())

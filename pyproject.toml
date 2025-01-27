@@ -40,15 +40,13 @@ classifiers = [
     "Topic :: Utilities",
 ]
 keywords = ["command", "tool"]
-dependencies = [
-    "argcomplete"
-]
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 
 [project.urls]
 Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://command-creator.readthedocs.io/en/latest/index.html"
 
 [project.optional-dependencies]
-dev = ["flake8", "mypy", "tox", "pytest", "sphinx", "sphinx-rtd-theme"]
+completion = ["argcomplete"]
+dev = ["flake8", "mypy", "tox", "pytest", "virtualenv-pyenv", "sphinx", "sphinx-rtd-theme"]
 docs = ['sphinx', 'sphinx-rtd-theme']
