@@ -414,7 +414,10 @@ class Command(ABC):
             else:
                 if fld.choices is not None and not isinstance(fld.choices, list):
                     if issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
-                        arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
+                        try:
+                            arg_dict[fld.name] = fld.choices(arg_dict[fld.name])
+                        except ValueError:
+                            arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
 
         if len(cls.sub_commands) != 0 and args.sub_command is not None:
             arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
