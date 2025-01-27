@@ -17,7 +17,11 @@
 #####################################################################################
 
 from __future__ import annotations
-from typing import Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypeAlias
+from typing import (
+    Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypedDict,
+    List, Dict, Union
+)
+import types
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -25,12 +29,21 @@ from enum import Enum
 from abc import ABC, abstractmethod
 from argparse import ArgumentParser, Namespace, Action
 
-import argcomplete
+try:
+    argcomplete: types.ModuleType | None
+    import argcomplete
+except ImportError:
+    argcomplete = None
 
 __all__ = [
     "InvalidArgumentError",
     "Command",
-    "arg"
+    "arg",
+    "CompleterList",
+    "CompleterDict",
+    "CompleterIter",
+    "CompleterFunc",
+    "Completer",
 ]
 
 
@@ -46,11 +59,23 @@ class InvalidArgumentError(Exception):
 #####################################################################################
 # General Type-Hinting
 #####################################################################################
-CompleterList: TypeAlias = list[str]
-CompleterDict: TypeAlias = dict[str, str]
-CompleterIter: TypeAlias = CompleterList | CompleterDict
-CompleterFunc: TypeAlias = Callable[[str, Action, ArgumentParser, Namespace], CompleterIter]
-Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
+class CompleterArgs(TypedDict):
+    prefix: str
+    action: Action
+    parser: ArgumentParser
+    parsed_args: Namespace
+
+
+CompleterList = List[str]
+CompleterDict = Dict[str, str]
+CompleterIter = Union[CompleterList, CompleterDict]
+if sys.version_info < (3, 11):
+    CompleterFunc = Callable[..., CompleterIter]
+else:
+    from typing import Unpack
+    CompleterFunc = Callable[[Unpack[CompleterArgs]], CompleterIter]
+
+Completer = Union[CompleterFunc, CompleterDict, CompleterList]
 
 
 #####################################################################################
@@ -59,15 +84,15 @@ Completer: TypeAlias = CompleterFunc | CompleterDict | CompleterList
 class CmdArgument(Field):
     """Class which represents a command-line argument
     """
-    __slots__ = ("help", "abrv", "choices", "optional", "count", "completer", "metavar")
+    __slots__ = ("help", "abrv", "choices", "positional", "count", "completer", "metavar")
 
     def __init__(
                 self,
                 help: str = "",
                 abrv: str | None = None,
-                choices: list[str] | type[Enum] | None = None,
+                choices: list[Any] | type[Enum] | None = None,
                 metavar: str | None = None,
-                optional: bool = False,
+                positional: bool = False,
                 default: Any = MISSING,
                 default_factory: Callable[[], Any] = lambda: MISSING,
                 init: bool = True,
@@ -89,10 +114,11 @@ class CmdArgument(Field):
             self.default_factory = MISSING
 
         self.help = help
+        """The help string used for the argument"""
         self.abrv = abrv
         self.choices = choices
         self.metavar = metavar
-        self.optional = optional
+        self.positional = positional
         self.count = count
         self.completer = completer
 
@@ -102,7 +128,7 @@ def arg(
             abrv: str | None = None,
             choices: list[str] | type[Enum] | None = None,
             metavar: str | None = None,
-            optional: bool = False,
+            positional: bool = False,
             default: Any = MISSING,
             default_factory: Callable[[], Any] = lambda: MISSING,
             init: bool = True,
@@ -123,7 +149,7 @@ def arg(
                 Defaults to None.
             metavar (str | None) : The metavar to use when displaying argument help info.
                 Defaults to None.
-            optional (bool, optional): Whether the argument is optional. Defaults to False.
+            positional (bool, optional): Whether the argument is positional. Defaults to False.
             default (Any, optional): Default value for the argument. Defaults to MISSING.
             default_factory (Callable[[], Any], optional): Default factory for the argument.
                 Defaults to lambda: MISSING.
@@ -154,7 +180,7 @@ def arg(
         abrv=abrv,
         choices=choices,
         metavar=metavar,
-        optional=optional,
+        positional=positional,
         default=default,
         default_factory=default_factory,
         init=init,
@@ -177,11 +203,12 @@ class Command(ABC):
     """
 
     sub_commands: ClassVar[dict[str, Type[Command]]] = dict()
+    """A dictionary mapping the sub-command name to the respective sub-command"""
     sub_command: Command | None
+    """The sub-command found during argument parsing. None if one not found"""
 
-    @abstractmethod
     def __post_init__(self) -> None:
-        """This method must be implemented by subclasses in order to setup variables or
+        """This method may be implemented by subclasses in order to setup variables or
         post-process any user inputs
         """
         pass
@@ -194,21 +221,31 @@ class Command(ABC):
         pass
 
     @classmethod
-    def create_parser(cls: Type[CommandT]) -> ArgumentParser:
+    def create_parser(cls: Type[CommandT], doc_mode: bool = False) -> ArgumentParser:
+        """Create the argument parser for the Command using argparser library
+
+        Args:
+            doc_mode (bool, optional): Whether to force meta-data use for prettier documentation.
+                Defaults to False.
+
+        Returns:
+            ArgumentParser: The argument-parser derived from the class definition
+        """
         parser = ArgumentParser(
             prog=cls.__name__.lower(),
             description=cls.__doc__,
         )
-        cls._add_args(parser)
-        cls._add_sub_commands(parser)
+        cls._add_args(parser, doc_mode)
+        cls._add_sub_commands(parser, doc_mode)
         return parser
 
     @classmethod
-    def _add_args(cls, parser: ArgumentParser) -> None:
+    def _add_args(cls, parser: ArgumentParser, doc_mode: bool = False) -> None:
         """Add arguments to the parser
 
         Args:
-                parser (ArgumentParser): The parser to add arguments to
+            parser (ArgumentParser): The parser to add arguments to
+            doc_mode (bool): Force the args to use metavars instead of options
         """
         for fld in fields(cls):
             if "ClassVar" in str(fld.type):
@@ -226,6 +263,9 @@ class Command(ABC):
             if fld.count and fld.type != 'int':
                 raise ValueError(f"Field ({fld.name}) with count=True has type {fld.type}!=int")
 
+            if argcomplete is None and fld.completer is not None:
+                raise ValueError("Completer provided without argcomplete package installed...")
+
             if 'list' in fld.type:
                 kwargs['nargs'] = '+'
             elif 'bool' in fld.type:
@@ -237,8 +277,6 @@ class Command(ABC):
                     kwargs['default'] = True
             elif 'str' in fld.type:
                 kwargs['type'] = str
-            elif 'str' in fld.type:
-                kwargs['type'] = int
             elif 'int' in fld.type:
                 kwargs['type'] = int
             elif 'float' in fld.type:
@@ -249,7 +287,7 @@ class Command(ABC):
                     kwargs.pop('type')
                 kwargs['action'] = 'count'
 
-            if fld.optional:
+            if fld.positional:
                 if 'nargs' not in kwargs:
                     kwargs['nargs'] = '?'
                 else:
@@ -267,8 +305,10 @@ class Command(ABC):
                         f"Field {fld.name} has an invalid type for choices" +
                         " Did you use an Enum or a list?"
                     )
-            elif isinstance(fld.completer, list) or isinstance(fld.completer, dict):
+            elif isinstance(fld.completer, list):
                 kwargs['choices'] = fld.completer
+                kwargs['metavar'] = fld.name.upper()
+            elif fld.completer is not None:
                 kwargs['metavar'] = fld.name.upper()
 
             if fld.metavar is not None:
@@ -279,7 +319,21 @@ class Command(ABC):
 
             kwargs['help'] = fld.help
 
+            if doc_mode:
+                if 'choices' in kwargs:
+                    kwargs.pop('choices')
+                    kwargs['metavar'] = fld.name.upper()
+
+            # Determine whether the argument is positional
+            positional = False
+            if fld.positional:
+                positional = True
             if fld.default is MISSING and fld.default_factory is MISSING:
+                positional = True
+            if fld.count:
+                positional = False
+
+            if positional:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
                 name = fld.name if '_' not in fld.name else fld.name.replace('_', '-')
@@ -289,15 +343,19 @@ class Command(ABC):
                 else:
                     action = parser.add_argument(f"--{name}", **kwargs)
 
-            if fld.completer is not None and callable(fld.completer):
+            if fld.completer is not None and isinstance(fld.completer, dict):
+                def _completer(**kwargs):
+                    return fld.completer
+                action.completer = _completer  # type: ignore[attr-defined]
+            elif fld.completer is not None and callable(fld.completer):
                 action.completer = fld.completer  # type: ignore[attr-defined]
 
     @classmethod
-    def _add_sub_commands(cls, parser: ArgumentParser) -> None:
+    def _add_sub_commands(cls, parser: ArgumentParser, doc_mode: bool = False) -> None:
         """Add sub-commands to the parser
 
         Args:
-                parser (ArgumentParser): The parser to add sub-commands to
+            parser (ArgumentParser): The parser to add sub-commands to
         """
         if len(cls.sub_commands) == 0:
             return
@@ -310,20 +368,20 @@ class Command(ABC):
         for sub_cmd_name, sub_cmd in cls.sub_commands.items():
             sub_parser = sub_parsers.add_parser(
                 sub_cmd_name,
-                usage=sub_cmd.__doc__,
+                description=sub_cmd.__doc__,
             )
-            sub_cmd._add_args(sub_parser)
-            sub_cmd._add_sub_commands(sub_parser)
+            sub_cmd._add_args(sub_parser, doc_mode)
+            sub_cmd._add_sub_commands(sub_parser, doc_mode)
 
     @classmethod
     def from_args(cls: Type[CommandT], args: Namespace) -> CommandT:
         """Create a command from a list of arguments
 
         Args:
-                args (list[str]): The arguments to create the command from
+            args (list[str]): The arguments to create the command from
 
         Returns:
-                CommandT: The created command
+            CommandT: The created command
         """
         arg_dict = {}
 
@@ -338,11 +396,15 @@ class Command(ABC):
 
             arg_dict[fld.name] = getattr(args, fld.name)
 
-            if 'list' in fld.type and fld.optional:
+            if 'list' in fld.type and fld.positional:
                 if arg_dict[fld.name] is None:
                     arg_dict[fld.name] = []
                 elif len(arg_dict[fld.name]) == 0:
                     arg_dict[fld.name] = None
+            else:
+                if fld.choices is not None and not isinstance(fld.choices, list):
+                    if issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
+                        arg_dict[fld.name] = fld.choices[arg_dict[fld.name]]
 
         if len(cls.sub_commands) != 0 and args.sub_command is not None:
             arg_dict["sub_command"] = cls.sub_commands[args.sub_command].from_args(args)
@@ -356,7 +418,8 @@ class Command(ABC):
         """Execute the command and exit with the return code
         """
         parser = cls.create_parser()
-        argcomplete.autocomplete(parser)
+        if argcomplete is not None:
+            argcomplete.autocomplete(parser)
         args = parser.parse_args()
         cmd = cls.from_args(args)
         exit(cmd())

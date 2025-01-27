@@ -6,3 +6,9 @@ A python package which simplifies the command creation process
 [![docs](https://readthedocs.org/projects/command-creator/badge)](https://command-creator.readthedocs.io/en/latest/index.html)
 
 See [Read-The-Docs](https://command-creator.readthedocs.io/en/latest/index.html) for details
+
+## Running tox with pyenv
+
+```bash
+export VIRTUALENV_DISCOVERY="pyenv"
+```
