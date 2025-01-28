@@ -21,9 +21,8 @@ from typing import (
     Any, Callable, Mapping, TypeVar, Type, ClassVar, NoReturn, TypedDict,
     List, Dict, Union
 )
+from collections.abc import Sequence
 import types
-
-import warnings
 
 import sys
 from dataclasses import Field, dataclass, MISSING, fields
@@ -86,7 +85,9 @@ Completer = Union[CompleterFunc, CompleterDict, CompleterList]
 class CmdArgument(Field):
     """Class which represents a command-line argument
     """
-    __slots__ = ("help", "abrv", "choices", "positional", "count", "completer", "metavar")
+    __slots__ = (
+        "help", "abrv", "choices", "optional", "positional", "count", "completer", "metavar"
+    )
 
     def __init__(
                 self,
@@ -94,6 +95,7 @@ class CmdArgument(Field):
                 abrv: str | None = None,
                 choices: list[Any] | type[Enum] | None = None,
                 metavar: str | None = None,
+                optional: bool = False,
                 positional: bool = False,
                 default: Any = MISSING,
                 default_factory: Callable[[], Any] = lambda: MISSING,
@@ -120,9 +122,25 @@ class CmdArgument(Field):
         self.abrv = abrv
         self.choices = choices
         self.metavar = metavar
+        self.optional = optional
         self.positional = positional
         self.count = count
         self.completer = completer
+
+    def __repr__(self) -> str:
+        ret_val = "CmdArgument("
+        ret_val += f"name={self.name},"
+        for slot in CmdArgument.__slots__:
+            ret_val += f"{slot}={getattr(self, slot)},"
+        ret_val +=  ")"
+        return ret_val
+
+    def get_default(self) -> Any | None:
+        if self.default is not MISSING:
+            return self.default
+        elif self.default_factory is not MISSING:
+            return self.default_factory()
+        return None
 
 
 def arg(
@@ -130,6 +148,7 @@ def arg(
             abrv: str | None = None,
             choices: list[str] | type[Enum] | None = None,
             metavar: str | None = None,
+            optional: bool = False,
             positional: bool = False,
             default: Any = MISSING,
             default_factory: Callable[[], Any] = lambda: MISSING,
@@ -151,6 +170,7 @@ def arg(
                 Defaults to None.
             metavar (str | None) : The metavar to use when displaying argument help info.
                 Defaults to None.
+            optional (bool, optional): Whether the argument is optional. Default to False.
             positional (bool, optional): Whether the argument is positional. Defaults to False.
             default (Any, optional): Default value for the argument. Defaults to MISSING.
             default_factory (Callable[[], Any], optional): Default factory for the argument.
@@ -177,19 +197,12 @@ def arg(
         if "kw_only" not in kwargs:
             kwargs["kw_only"] = False
 
-    if 'optional' in kwargs:
-        warnings.warn(
-            "Using deprecated argument 'optional' in command_creator.arg",
-            category=DeprecationWarning,
-            stacklevel=3
-        )
-        positional = positional or bool(kwargs.pop('optional'))
-
     return CmdArgument(
         help=help,
         abrv=abrv,
         choices=choices,
         metavar=metavar,
+        optional=optional,
         positional=positional,
         default=default,
         default_factory=default_factory,
@@ -297,7 +310,7 @@ class Command(ABC):
                     kwargs.pop('type')
                 kwargs['action'] = 'count'
 
-            if fld.positional:
+            if fld.optional:
                 if 'nargs' not in kwargs:
                     kwargs['nargs'] = '?'
                 else:
@@ -335,15 +348,14 @@ class Command(ABC):
                     kwargs['metavar'] = fld.name.upper()
 
             # Determine whether the argument is positional
-            positional = False
-            if fld.positional:
-                positional = True
-            if fld.default is MISSING and fld.default_factory is MISSING:
-                positional = True
-            if fld.count:
-                positional = False
+            if fld.positional and fld.count:
+                raise ValueError("fld.positional and fld.count cannot both be true")
 
-            if positional:
+            if not fld.positional and not fld.count:
+                if fld.default is MISSING and fld.default_factory is MISSING:
+                    fld.positional = True
+
+            if fld.positional:
                 action = parser.add_argument(fld.name, **kwargs)
             else:
                 name = fld.name if '_' not in fld.name else fld.name.replace('_', '-')
@@ -406,11 +418,21 @@ class Command(ABC):
 
             arg_dict[fld.name] = getattr(args, fld.name)
 
-            if 'list' in fld.type and fld.positional:
+            if 'list' in fld.type:
                 if arg_dict[fld.name] is None:
-                    arg_dict[fld.name] = []
-                elif len(arg_dict[fld.name]) == 0:
-                    arg_dict[fld.name] = None
+                    if fld.positional:
+                        raise ValueError(
+                            " Positional lists should never be able to be None" +
+                            " from argparse. Please report an issue w/ the mainter"
+                        )
+                    else:
+                        arg_dict[fld.name] = fld.get_default()
+                elif isinstance(arg_dict[fld.name], list) and len(arg_dict[fld.name]) == 0:
+                    if fld.positional:
+                        arg_dict[fld.name] = fld.get_default()
+                    elif fld.optional:
+                        arg_dict[fld.name] = None
+
             else:
                 if fld.choices is not None and not isinstance(fld.choices, list):
                     if issubclass(fld.choices, Enum) and arg_dict[fld.name] is not None:
@@ -427,14 +449,29 @@ class Command(ABC):
         return cls(**arg_dict)
 
     @classmethod
-    def execute(cls: Type[CommandT]) -> NoReturn:
-        """Execute the command and exit with the return code
+    def parse_args(cls: Type[CommandT], args: Sequence[str] | None = None) -> CommandT:
+        """Parse the given args and create the command instance
+
+        Args:
+            cls (Type[CommandT]): The command type to parse and create
+            args (Sequence[str] | None, optional): The arg provided.
+                Operates as ArgumentParser.parse_args. Defaults to None.
+
+        Returns:
+            CommandT: The command type provided as cls
         """
         parser = cls.create_parser()
         if argcomplete is not None:
             argcomplete.autocomplete(parser)
-        args = parser.parse_args()
-        cmd = cls.from_args(args)
+        parsed_args = parser.parse_args(args)
+        return cls.from_args(parsed_args)
+
+
+    @classmethod
+    def execute(cls: Type[CommandT]) -> NoReturn:
+        """Execute the command and exit with the return code
+        """
+        cmd = cls.parse_args()
         exit(cmd())
 
 

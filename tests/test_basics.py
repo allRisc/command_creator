@@ -1,6 +1,6 @@
 #####################################################################################
 # A package to simplify the creation of Python Command-Line tools
-# Copyright (C) 2023  Benjamin Davis
+# Copyright (C) 2025  Benjamin Davis
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -94,20 +94,85 @@ def test_arg_choices_enum() -> None:
         args = _TmpCmd.create_parser().parse_args("D".split())
 
 
+def test_arg_optional() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: str | None = arg(default="default_opt", optional=True)
+
+    parser = _TmpCmd.create_parser()
+    args = parser.parse_args("--opt val1".split())
+    assert args.opt == "val1"
+
+    args = parser.parse_args("--opt".split())
+    assert args.opt is None
+
+    args= parser.parse_args("".split())
+    assert args.opt == "default_opt"
+
+
+def test_arg_optional_positional() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: str = arg(positional=True, default="default_opt", optional=True)
+
+    parser = _TmpCmd.create_parser()
+    args = parser.parse_args("val1".split())
+    assert args.opt == "val1"
+
+    args = parser.parse_args("".split())
+    assert args.opt == "default_opt"
+
+    @dataclass
+    class _TmpCmd(Command):
+        opt: str | None = arg(positional=True, optional=True)
+
+    parser = _TmpCmd.create_parser()
+    args = parser.parse_args("val1".split())
+    assert args.opt == "val1"
+
+    args = parser.parse_args("".split())
+    assert args.opt is None
+
+def test_arg_optional_list() -> None:
+    @dataclass
+    class _TmpCmd(Command):
+        opt: list[str] | None = arg(default_factory=list, optional=True)
+
+        def __call__(self) -> int:
+            return 0
+
+    parser = _TmpCmd.create_parser()
+    args = parser.parse_args("--opt val1 val2".split())
+    assert set(args.opt) == {"val1", "val2"}
+
+    tmp = _TmpCmd.parse_args("--opt".split())
+    assert tmp.opt is None
+
+    tmp = _TmpCmd.parse_args("".split())
+    assert isinstance(tmp.opt, list)
+    assert len(tmp.opt) == 0
+
 def test_arg_positional() -> None:
     @dataclass
     class _TmpCmd(Command):
-        opt1: str | None = arg(positional=True)
-        opt2: str = arg(positional=True, default="default_opt2")
+        opt1: str = arg(positional=True)
+        opt2: str = arg(positional=True, default="default_opt2", optional=True)
 
     for action in _TmpCmd.create_parser()._actions:
         if action.dest == "help":
             continue
         assert len(action.option_strings) == 0
 
-    args = _TmpCmd.create_parser().parse_args("".split())
-    assert args.opt1 is None
+    with pytest.raises(SystemExit):
+        args = _TmpCmd.create_parser().parse_args("".split())
+
+    args = _TmpCmd.create_parser().parse_args("given_opt1".split())
+    assert args.opt1 == "given_opt1"
     assert args.opt2 == "default_opt2"
+
+    args = _TmpCmd.create_parser().parse_args("given_opt1 given_opt2".split())
+    assert args.opt1 == "given_opt1"
+    assert args.opt2 == "given_opt2"
 
 
 def test_arg_count() -> None:

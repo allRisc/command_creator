@@ -115,6 +115,24 @@ metavar
 
 The ``metavar`` argument takes a string which is used as the ``METAVAR`` in the help string.
 
+optional
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ``optional`` argument takes a boolean and determines the following based on the argument:
+
+- If the argument is *positional*
+
+    - Then the positional argument can be excluded in the command line
+    - If the argument is excluded and a default is given then the field gets set to the default
+    - If the argument is excluded and no default is given then the field gets set to ``None``
+
+- If the argument is an *option*
+
+    - Then the optional option can be provided without an argument after it
+    - If the option is excluded from the command-line then the field gets set to the default
+    - If the option is provided w/o an argument then the field gets set to ``None``
+    - If the option is provided w/ an argument then the field gets set to the provided argument
+
 positional
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
