@@ -225,6 +225,8 @@ class Command(ABC):
     """Class which represents a command-line command
     """
 
+    cmd_name: ClassVar[str | None] = None
+    """The override name of the (sub)command to use instead of the class-name"""
     sub_commands: ClassVar[dict[str, Type[Command]]] = dict()
     """A dictionary mapping the sub-command name to the respective sub-command"""
     sub_command: Command | None
@@ -254,8 +256,10 @@ class Command(ABC):
         Returns:
             ArgumentParser: The argument-parser derived from the class definition
         """
+        name = cls.__name__.lower() if cls.cmd_name is None else cls.cmd_name
+
         parser = ArgumentParser(
-            prog=cls.__name__.lower(),
+            prog=name,
             description=cls.__doc__,
         )
         cls._add_args(parser, doc_mode)
