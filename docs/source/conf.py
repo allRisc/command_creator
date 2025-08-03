@@ -26,6 +26,7 @@ extensions = [
   'sphinx.ext.autodoc',
   'sphinx.ext.autosummary',
   'sphinx.ext.napoleon',
+  'myst_parser',
 ]
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
 

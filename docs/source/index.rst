@@ -3,7 +3,7 @@
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
-Welcome to Command Creator's documentation!
+Command Creator's documentation!
 ===========================================
 
 .. image:: https://github.com/allRisc/command_creator/actions/workflows/test.yml/badge.svg

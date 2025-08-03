@@ -15,6 +15,9 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
+"""The command creator package provides a simple way to create command-line tools
+using Python's argparse library and dataclasses.
+"""
 
 from __future__ import annotations
 from typing import (
@@ -120,12 +123,19 @@ class CmdArgument(Field):
         self.help = help
         """The help string used for the argument"""
         self.abrv = abrv
+        """The abbreviation for the argument, if any"""
         self.choices = choices
+        """The choices for the argument, if any"""
         self.metavar = metavar
+        """The metavar for the argument, if any"""
         self.optional = optional
+        """Whether the argument is optional"""
         self.positional = positional
+        """Whether the argument is positional"""
         self.count = count
+        """Whether the argument is a count"""
         self.completer = completer
+        """The argcomplete completer for the argument, if any"""
 
     def __repr__(self) -> str:
         ret_val = "CmdArgument("
@@ -293,20 +303,20 @@ class Command(ABC):
             if argcomplete is None and fld.completer is not None:
                 raise ValueError("Completer provided without argcomplete package installed...")
 
-            if 'list' in fld.type:
+            if 'list' in str(fld.type):
                 kwargs['nargs'] = '+'
-            elif 'bool' in fld.type:
+            elif 'bool' in str(fld.type):
                 if fld.default is MISSING or fld.default is False:
                     kwargs['action'] = 'store_true'
                     kwargs['default'] = False
                 else:
                     kwargs['action'] = 'store_false'
                     kwargs['default'] = True
-            elif 'str' in fld.type:
+            elif 'str' in str(fld.type):
                 kwargs['type'] = str
-            elif 'int' in fld.type:
+            elif 'int' in str(fld.type):
                 kwargs['type'] = int
-            elif 'float' in fld.type:
+            elif 'float' in str(fld.type):
                 kwargs['type'] = float
 
             if fld.count:
@@ -371,7 +381,7 @@ class Command(ABC):
 
             if fld.completer is not None and isinstance(fld.completer, dict):
                 def _completer(**kwargs):
-                    return fld.completer
+                    return fld.completer   # type: ignore[return-value]
                 action.completer = _completer  # type: ignore[attr-defined]
             elif fld.completer is not None and callable(fld.completer):
                 action.completer = fld.completer  # type: ignore[attr-defined]
@@ -422,7 +432,7 @@ class Command(ABC):
 
             arg_dict[fld.name] = getattr(args, fld.name)
 
-            if 'list' in fld.type:
+            if 'list' in str(fld.type):
                 if arg_dict[fld.name] is None:
                     if fld.positional:
                         raise ValueError(
