@@ -17,8 +17,8 @@
 #####################################################################################
 
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "command_creator"
@@ -30,23 +30,131 @@ license = {file = "LICENSE"}
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Utilities",
 ]
 keywords = ["command", "tool"]
-requires-python = ">=3.8"
+requires-python = ">=3.14"
+dependencies = []
+
+[project.optional-dependencies]
+completion = ["argcomplete"]
 
 [project.urls]
 Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://command-creator.readthedocs.io/en/latest/index.html"
 
-[project.optional-dependencies]
-completion = ["argcomplete"]
-dev = ["flake8", "mypy", "tox", "pytest", "virtualenv-pyenv", "sphinx", "sphinx-rtd-theme", "myst-parser"]
-docs = ['sphinx', 'sphinx-rtd-theme', 'myst-parser']
+[tool.hatch.version]
+path = "src/command_creator/_info.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/command_creator"]
+
+# Dependency Groups
+####################################################################################################
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "tox>=4.25.0",
+    "tox-uv>=1.13.1",
+]
+docs = [
+    "sphinx>=5.3.0",
+    "sphinx-rtd-theme>=2.0.0",
+    "myst-parser>=4.0.1",
+]
+tests = [
+    "pytest>=7.4.4",
+]
+typing = [
+    "mypy>=1.4.1",
+]
+
+# Tool Configurations
+####################################################################################################
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+target-version = "py314"
+src = ["src", "tests"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "SIM",  # flake8-simplify
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["command_creator"]
+
+[tool.mypy]
+warn_return_any = true
+pretty = true
+
+python_version = "3.14"
+
+files = ["src"]
+
+[tool.tox]
+env_list = [
+    "py314",
+    "style",
+    "typing",
+    "docs_dirhtml",
+]
+
+[tool.tox.env_run_base]
+description = "pytest on latest dependency versions"
+runner = "uv-venv-lock-runner"
+package = "wheel"
+wheel_build_env = ".pkg"
+constrain_package_deps = true
+use_frozen_constraints = true
+dependency_groups = ["tests"]
+
+commands = [[
+    "pytest", "-v", "--tb=short", "--basetemp={env_tmp_dir}",
+    {replace = "posargs", default = [], extend = true},
+]]
+
+[tool.tox.env.style]
+description = "run linting and style checks on code"
+dependency_groups = ["dev"]
+skip_install = true
+commands = [["ruff", "check"]]
+
+[tool.tox.env.typing]
+description = "run static type checkers"
+dependency_groups = ["typing"]
+commands = [
+    ["mypy"],
+]
+
+[tool.tox.env.docs_dirhtml]
+description = "build docs in dirhtml mode"
+dependency_groups = ["docs"]
+allowlist_externals = ["rm"]
+commands_pre = [
+    ["rm", "-rf", "docs/_build"],
+]
+commands = [
+    ["sphinx-build", "-E", "-W", "-b", "dirhtml", "docs/source", "docs/_build/dirhtml"],
+]
