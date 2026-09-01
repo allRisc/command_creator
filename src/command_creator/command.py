@@ -27,7 +27,7 @@ constructs:
   the ``--help`` text,
 * anything that pydantic's ``Field`` has no native concept of (an abbreviation, a
   forced-positional, a count flag, a custom metavar) is passed through the field's
-  ``json_schema_extra`` metadata, typed by the :class:`ArgMeta` ``dict`` subclass.
+  ``json_schema_extra`` metadata, typed by the :class:`ArgMeta` ``TypedDict``.
 
 Sub-commands are declared with class-owned identity: every command class knows its
 own :attr:`~BaseCmdModel.cmd_name` (defaulting to the lower-cased class name) and
@@ -50,6 +50,7 @@ from typing import (
     Literal,
     NoReturn,
     Self,
+    TypedDict,
     Union,
     get_args,
     get_origin,
@@ -94,13 +95,13 @@ class InvalidCommandError(Exception):
 #####################################################################################
 # Argument metadata
 #####################################################################################
-class ArgMeta(dict[str, Any]):
+class ArgMeta(TypedDict, total=False):
     """Command-line metadata for a field, supplied via ``Field(json_schema_extra=...)``.
 
     Everything here is intentionally *not* something pydantic's ``Field`` already
-    models.  :class:`ArgMeta` is a plain ``dict`` subclass whose keyword-only
-    constructor documents every accepted option (and gives editors auto-complete),
-    while remaining a real ``dict`` that drops straight into ``json_schema_extra``::
+    models.  :class:`ArgMeta` is a ``TypedDict`` (all keys optional), so it names and
+    types the accepted options for editors and type-checkers while remaining a plain
+    ``dict`` at runtime::
 
         from pydantic import Field
         from command_creator import ArgMeta
@@ -109,9 +110,9 @@ class ArgMeta(dict[str, Any]):
             verbose: bool = Field(False, description="be loud",
                                   json_schema_extra=ArgMeta(abrv="v"))
 
-    Only the options you pass are stored; unset options are omitted entirely.
+    Pass only the options you need; omitted keys are simply absent.
 
-    Args:
+    Keys:
         abrv: A single short-option abbreviation, e.g. ``"v"`` exposes ``-v`` alongside
             the long ``--<name>`` option.  Ignored for positional arguments.
         positional: Force the argument to be positional (``True``) or an option
@@ -126,23 +127,11 @@ class ArgMeta(dict[str, Any]):
         metavar: Override the placeholder shown for the argument's value in ``--help``.
     """
 
-    def __init__(
-        self,
-        *,
-        abrv: str | None = None,
-        positional: bool | None = None,
-        optional: bool | None = None,
-        count: bool | None = None,
-        metavar: str | None = None,
-    ) -> None:
-        data: dict[str, Any] = {
-            "abrv": abrv,
-            "positional": positional,
-            "optional": optional,
-            "count": count,
-            "metavar": metavar,
-        }
-        super().__init__({key: value for key, value in data.items() if value is not None})
+    abrv: str
+    positional: bool
+    optional: bool
+    count: bool
+    metavar: str
 
 
 #####################################################################################
