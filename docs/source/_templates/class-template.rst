@@ -26,17 +26,4 @@
    {% endblock %}
 
    {% block attributes %}
-   {% if attributes %}
-   .. rubric:: {{ _('Attributes') }}
-
-   .. autosummary::
-   {% for item in attributes %}
-      ~{{ name }}.{{ item }}
-   {%- endfor %}
-
-   {%- if objname == "Command" %}
-   .. automethod:: __call__
-   .. automethod:: __post_init__
-   {% endif %}
-   {% endif %}
    {% endblock %}
