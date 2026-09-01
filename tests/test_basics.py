@@ -1,6 +1,6 @@
 #####################################################################################
 # A package to simplify the creation of Python Command-Line tools
-# Copyright (C) 2025  Benjamin Davis
+# Copyright (C) 2026  Benjamin Davis
 #
 # This library is free software; you can redistribute it and/or
 # modify it under the terms of the GNU Lesser General Public
@@ -15,236 +15,239 @@
 # You should have received a copy of the GNU Lesser General Public
 # License along with this library; If not, see <https://www.gnu.org/licenses/>.
 #####################################################################################
+"""Tests for individual command-line argument features."""
 
-from __future__ import annotations
-import sys
-
-from enum import Enum
-from command_creator import Command, arg
-from dataclasses import dataclass
-import argparse
+# NOTE: intentionally *no* ``from __future__ import annotations`` -- pydantic must be
+# able to resolve the annotations of models defined inside test functions, and string
+# annotations referencing function-local types cannot be resolved.
 
 import pytest
 
-
-def test_arg_help() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt1: str = arg(help="Test opt1 help")
-        opt2: int = arg(default=1, help="Test opt2 help")
-
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt1":
-            assert action.help == "Test opt1 help"
-        if action.dest == "opt2":
-            assert action.help == "Test opt2 help"
+from command_creator import BaseCmdModel, Field, InvalidCommandError, arg, arg_meta, option
 
 
-def test_arg_abrv() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt1: str = arg(default="", abrv="o")
-        opt2: str = arg(default="", abrv="pp")
-
-    for action in _TmpCmd.create_parser()._actions:
-        assert f"--{action.dest}" in action.option_strings
-        if action.dest == "opt1":
-            assert "-o" in action.option_strings
-        if action.dest == "opt2":
-            assert "-pp" in action.option_strings
+def _action(parser, dest):
+    for action in parser._actions:
+        if action.dest == dest:
+            return action
+    raise AssertionError(f"no action with dest {dest!r}")
 
 
-def test_arg_choices_list() -> None:
-    options = ["choice1", "choice2", "choice3"]
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str = arg(choices=options)
+def test_help_from_description() -> None:
+    class Cmd(BaseCmdModel):
+        opt: str = option(default="", description="the opt help")
 
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.choices is not None
-            assert set(options) == set(action.choices)
+    assert _action(Cmd.get_parser(), "opt").help == "the opt help"
 
 
-def test_arg_choices_enum() -> None:
-    class _TmpEnum(Enum):
-        A = "a"
-        B = "b"
-        C = "c"
+def test_arg_is_positional_option_is_optional() -> None:
+    class Cmd(BaseCmdModel):
+        src: str = arg(description="a positional")
+        dst: str = option(default="out", description="an option")
 
-    @dataclass
-    class _TmpCmd(Command):
-        opt: _TmpEnum = arg(choices=_TmpEnum)
+    parser = Cmd.get_parser()
+    assert _action(parser, "src").option_strings == []
+    assert "--dst" in _action(parser, "dst").option_strings
 
-        def __call__(self) -> int:
-            return 0
+    cmd = Cmd.parse(["in"])
+    assert cmd.src == "in"
+    assert cmd.dst == "out"
+    assert Cmd.parse(["in", "--dst", "here"]).dst == "here"
 
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.choices is not None
-            assert set(action.choices) == {"A", "B", "C"}
 
-    args = _TmpCmd.create_parser().parse_args("B".split())
-    assert args.opt == 'B'
+def test_raw_field_positional_inference() -> None:
+    # The escape hatch: a plain Field still works -- required -> positional, default -> option.
+    class Cmd(BaseCmdModel):
+        src: str = Field(description="required -> positional")
+        dst: str = Field("out", description="default -> option")
 
-    cmd = _TmpCmd.from_args(args)
-    assert cmd.opt == _TmpEnum.B
+    parser = Cmd.get_parser()
+    assert _action(parser, "src").option_strings == []
+    assert "--dst" in _action(parser, "dst").option_strings
 
+
+def test_abrv() -> None:
+    class Cmd(BaseCmdModel):
+        opt1: str = option(default="", abrv="o")
+        opt2: str = option(default="", abrv="pp")
+
+    parser = Cmd.get_parser()
+    assert "-o" in _action(parser, "opt1").option_strings
+    assert "--opt1" in _action(parser, "opt1").option_strings
+    assert "-pp" in _action(parser, "opt2").option_strings
+
+    assert Cmd.parse(["-o", "x"]).opt1 == "x"
+
+
+def test_metavar() -> None:
+    class Cmd(BaseCmdModel):
+        opt: str = option(default="", metavar="SOME_META")
+
+    assert _action(Cmd.get_parser(), "opt").metavar == "SOME_META"
+
+
+def test_underscores_become_hyphens() -> None:
+    class Cmd(BaseCmdModel):
+        output_file: str = option(default="")
+
+    parser = Cmd.get_parser()
+    assert "--output-file" in _action(parser, "output_file").option_strings
+    assert Cmd.parse(["--output-file", "f"]).output_file == "f"
+
+
+def test_int_and_float_coercion() -> None:
+    class Cmd(BaseCmdModel):
+        count: int = option(default=0)
+        ratio: float = option(default=0.0)
+
+    cmd = Cmd.parse(["--count", "7", "--ratio", "1.5"])
+    assert cmd.count == 7 and isinstance(cmd.count, int)
+    assert cmd.ratio == 1.5 and isinstance(cmd.ratio, float)
+
+
+def test_bool_flag_store_true() -> None:
+    class Cmd(BaseCmdModel):
+        debug: bool = option(default=False)
+
+    assert Cmd.parse([]).debug is False
+    assert Cmd.parse(["--debug"]).debug is True
+
+
+def test_bool_flag_store_false() -> None:
+    # A bool defaulting to True becomes a "turn it off" flag.
+    class Cmd(BaseCmdModel):
+        color: bool = option(default=True)
+
+    assert Cmd.parse([]).color is True
+    assert Cmd.parse(["--color"]).color is False
+
+
+def test_count() -> None:
+    class Cmd(BaseCmdModel):
+        verbose: int = option(default=0, count=True, abrv="v")
+
+    assert Cmd.parse([]).verbose == 0
+    assert Cmd.parse(["-vvv"]).verbose == 3
+    assert Cmd.parse(["--verbose"] * 5).verbose == 5
+
+
+def test_optional_value_option() -> None:
+    class Cmd(BaseCmdModel):
+        out: str | None = option(default="default_out", optional=True)
+
+    assert Cmd.parse([]).out == "default_out"        # absent -> default
+    assert Cmd.parse(["--out"]).out is None          # flag given, no value -> None
+    assert Cmd.parse(["--out", "v"]).out == "v"      # value given
+
+
+def test_arg_with_default_is_optional_positional() -> None:
+    class Cmd(BaseCmdModel):
+        name: str = arg(default="anon")
+
+    parser = Cmd.get_parser()
+    assert _action(parser, "name").option_strings == []
+    assert Cmd.parse([]).name == "anon"
+    assert Cmd.parse(["bob"]).name == "bob"
+
+
+def test_option_without_default_is_required() -> None:
+    class Cmd(BaseCmdModel):
+        token: str = option()
+
+    assert "--token" in _action(Cmd.get_parser(), "token").option_strings
     with pytest.raises(SystemExit):
-        args = _TmpCmd.create_parser().parse_args("D".split())
+        Cmd.parse([])
+    assert Cmd.parse(["--token", "abc"]).token == "abc"
 
 
-def test_arg_optional() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str | None = arg(default="default_opt", optional=True)
+def test_option_forwards_pydantic_constraints() -> None:
+    from pydantic import ValidationError
 
-    parser = _TmpCmd.create_parser()
-    args = parser.parse_args("--opt val1".split())
-    assert args.opt == "val1"
+    class Cmd(BaseCmdModel):
+        port: int = option(default=8080, ge=1, le=65535)
 
-    args = parser.parse_args("--opt".split())
-    assert args.opt is None
-
-    args= parser.parse_args("".split())
-    assert args.opt == "default_opt"
+    assert Cmd.parse(["--port", "9000"]).port == 9000
+    with pytest.raises(ValidationError):
+        Cmd.parse(["--port", "70000"])
 
 
-def test_arg_optional_positional() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str = arg(positional=True, default="default_opt", optional=True)
+def test_option_forwards_arbitrary_field_kwargs() -> None:
+    # Any pydantic Field option (here title/examples) is forwarded to the FieldInfo.
+    class Cmd(BaseCmdModel):
+        port: int = option(default=8080, title="Port", examples=[80, 443])
 
-    parser = _TmpCmd.create_parser()
-    args = parser.parse_args("val1".split())
-    assert args.opt == "val1"
-
-    args = parser.parse_args("".split())
-    assert args.opt == "default_opt"
-
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str | None = arg(positional=True, optional=True)
-
-    parser = _TmpCmd.create_parser()
-    args = parser.parse_args("val1".split())
-    assert args.opt == "val1"
-
-    args = parser.parse_args("".split())
-    assert args.opt is None
-
-def test_arg_optional_list() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: list[str] | None = arg(default_factory=list, optional=True)
-
-        def __call__(self) -> int:
-            return 0
-
-    parser = _TmpCmd.create_parser()
-    args = parser.parse_args("--opt val1 val2".split())
-    assert set(args.opt) == {"val1", "val2"}
-
-    tmp = _TmpCmd.parse_args("--opt".split())
-    assert tmp.opt is None
-
-    tmp = _TmpCmd.parse_args("".split())
-    assert isinstance(tmp.opt, list)
-    assert len(tmp.opt) == 0
-
-def test_arg_positional() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt1: str = arg(positional=True)
-        opt2: str = arg(positional=True, default="default_opt2", optional=True)
-
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "help":
-            continue
-        assert len(action.option_strings) == 0
-
-    with pytest.raises(SystemExit):
-        args = _TmpCmd.create_parser().parse_args("".split())
-
-    args = _TmpCmd.create_parser().parse_args("given_opt1".split())
-    assert args.opt1 == "given_opt1"
-    assert args.opt2 == "default_opt2"
-
-    args = _TmpCmd.create_parser().parse_args("given_opt1 given_opt2".split())
-    assert args.opt1 == "given_opt1"
-    assert args.opt2 == "given_opt2"
+    info = Cmd.model_fields["port"]
+    assert info.title == "Port"
+    assert info.examples == [80, 443]
 
 
-def test_arg_count() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: int = arg(count=True)
+def test_count_requires_int() -> None:
+    class Cmd(BaseCmdModel):
+        bad: str = option(default="", count=True)
 
-    _TmpCmd.create_parser().print_help()
-    args = _TmpCmd.create_parser().parse_args(["--opt"] * 5)
-    assert args.opt == 5
-    args = _TmpCmd.create_parser().parse_args(["--opt"] * 7)
-    assert args.opt == 7
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
 
 
-def test_arg_completer_list() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: int = arg(completer=[0, 1, 2, 3])
+def test_required_bool_is_rejected() -> None:
+    class Cmd(BaseCmdModel):
+        flag: bool = option()  # a bare required bool is contradictory
 
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.choices is not None
-            assert set(action.choices) == {0, 1, 2, 3}
-            assert action.metavar == "OPT"
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
 
 
-def test_arg_completer_dict() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: int = arg(completer={0: "Zero", 1: "One"})
+def test_optional_option_without_none_is_rejected() -> None:
+    class Cmd(BaseCmdModel):
+        x: int = option(default=5, optional=True)
 
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.completer(  # type:ignore[attr-defined]
-                prefix="",
-                action=action,
-                parser=_TmpCmd.create_parser(),
-                parsed_args=argparse.Namespace()
-            ) == {0: "Zero", 1: "One"}
-            assert action.metavar == "OPT"
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
 
 
-def test_arg_completer_callable() -> None:
-    if sys.version_info > (3, 10):
-        from typing import Unpack
-        from command_creator import CompleterArgs
-        def _tmp_completer(**kwargs: Unpack[CompleterArgs]) -> dict[str, str]:
-            return {f"c{i}": f"Choice {i}" for i in range(10)}
-    else:
-        def _tmp_completer(**kwargs) -> dict[str, str]:
-            return {f"c{i}": f"Choice {i}" for i in range(10)}
+def test_numeric_abrv_is_rejected() -> None:
+    class Cmd(BaseCmdModel):
+        n: int = option(default=0, abrv="2")
 
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str = arg(completer=_tmp_completer)
-
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.completer(  # type:ignore[attr-defined]
-                prefix="",
-                action=action,
-                parser=_TmpCmd.create_parser(),
-                parsed_args=argparse.Namespace()
-            ) == {f"c{i}": f"Choice {i}" for i in range(10)}
-            assert action.metavar == "OPT"
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
 
 
-def test_arg_completer_callable() -> None:
-    @dataclass
-    class _TmpCmd(Command):
-        opt: str = arg(metavar="SOME_META")
+def test_abrv_collision_is_rejected() -> None:
+    # '-h' collides with the auto-added help option.
+    class Cmd(BaseCmdModel):
+        height: int = option(default=0, abrv="h")
 
-    for action in _TmpCmd.create_parser()._actions:
-        if action.dest == "opt":
-            assert action.metavar == "SOME_META"
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
+
+
+def test_field_alias_populates_by_name() -> None:
+    class Cmd(BaseCmdModel):
+        output_file: str = Field("default", alias="out")
+
+    assert Cmd.parse(["--output-file", "y"]).output_file == "y"
+    assert Cmd.parse([]).output_file == "default"
+
+
+def test_arg_meta_escape_hatch_with_extra_keys() -> None:
+    # arg_meta() feeds a raw Field; recognised keys plus arbitrary extras pass through.
+    class Cmd(BaseCmdModel):
+        opt: str = Field("", json_schema_extra=arg_meta(abrv="o", my_tag="io", weight=3))
+
+    assert Cmd.model_fields["opt"].json_schema_extra == {"abrv": "o", "my_tag": "io", "weight": 3}
+    assert "-o" in _action(Cmd.get_parser(), "opt").option_strings
+
+
+def test_arg_meta_omits_unset_but_keeps_explicit_none_extra() -> None:
+    assert arg_meta(abrv="v") == {"abrv": "v"}
+    assert arg_meta(abrv="v", note=None) == {"abrv": "v", "note": None}
+
+
+@pytest.mark.filterwarnings("ignore::UserWarning")  # pydantic warns on shadowing a method
+def test_reserved_field_name_is_rejected() -> None:
+    class Cmd(BaseCmdModel):
+        run: str = option(default="")  # collides with BaseCmdModel.run
+
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()

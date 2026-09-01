@@ -6,12 +6,13 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-from command_creator import _info
-from datetime import datetime
 import importlib.util
-import pathlib
 import io
+import pathlib
 import sys
+from datetime import datetime
+
+from command_creator import _info
 
 project = 'Command Creator'
 copyright = f"{datetime.now().year}, {_info.__author__}"
@@ -22,13 +23,16 @@ release = _info.__version__
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
-  'sphinx.ext.autosectionlabel',
   'sphinx.ext.autodoc',
   'sphinx.ext.autosummary',
   'sphinx.ext.napoleon',
   'myst_parser',
 ]
 autosummary_generate = True  # Turn on sphinx.ext.autosummary
+
+# Generate slugged anchors for Markdown headings so the README's table-of-contents
+# links (used via users_guide.md) resolve when built as documentation.
+myst_heading_anchors = 4
 
 templates_path = ['_templates']
 exclude_patterns = []
@@ -52,7 +56,7 @@ sys.modules["examples.example"] = _examples
 _examples_spec.loader.exec_module(_examples)
 
 with open(_tmp_dir.joinpath("example.out"), "w") as f:
-  parser = _examples.CommandName.create_parser()
+  parser = _examples.Tool.get_parser()
   str_io = io.StringIO()
   parser.print_help(str_io)
   f.write(str_io.getvalue())
