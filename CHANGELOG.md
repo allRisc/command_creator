@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Argument groups for organising `--help` output. Pass `group="Title"` to `arg()` /
+  `option()` to list arguments under a shared heading, or declare a field whose type is a
+  `BaseCmdModel` subclass to flatten that nested model's fields into a titled group. The
+  new `group()` wrapper sets a nested group's title (defaulting to the child's `cmd_name`,
+  then its class name) and is exported from the package root.
 - `arg_meta()` helper that produces the CLI metadata for a hand-built `pydantic.Field`
   (via its `json_schema_extra`).
 - `InvalidCommandError` is exported from the package root.

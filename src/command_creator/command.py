@@ -45,7 +45,7 @@ import enum
 import itertools
 import sys
 import types
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -74,6 +74,7 @@ __all__ = [
     "InvalidCommandError",
     "arg",
     "arg_meta",
+    "group",
     "option",
 ]
 
@@ -161,6 +162,8 @@ def arg_meta(
     optional: bool | None = None,
     count: bool | None = None,
     metavar: str | None = None,
+    group: str | None = None,
+    group_title: str | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build the command-line metadata mapping for a *raw* ``pydantic.Field``.
@@ -186,6 +189,11 @@ def arg_meta(
             ``-vvv`` -> ``3``.  Only valid on ``int`` fields and mutually exclusive with
             ``positional``.
         metavar: Override the placeholder shown for the argument's value in ``--help``.
+        group: Title of the ``--help`` argument group this argument is listed under.
+            Arguments sharing a title are grouped together (see :func:`option`).
+        group_title: Title override for a *nested-model* group field, matching
+            :func:`group`'s ``title`` (used when the field's type is a
+            :class:`BaseCmdModel` subclass built as a raw ``Field``).
         **extra: Any additional metadata keys, stored verbatim.
 
     Returns:
@@ -197,13 +205,15 @@ def arg_meta(
         "optional": optional,
         "count": count,
         "metavar": metavar,
+        "group": group,
+        "group_title": group_title,
     }
     data: dict[str, Any] = {key: value for key, value in recognised.items() if value is not None}
     data.update(extra)  # extra keys pass through verbatim, including explicit None
     return data
 
 
-def _make_field(cli_meta: dict[str, Any], field_kwargs: FieldKwargs) -> Any:
+def _make_field(cli_meta: dict[str, Any], field_kwargs: Any) -> Any:
     """Create a ``pydantic.Field`` carrying *cli_meta* in its ``json_schema_extra``.
 
     Every keyword in ``field_kwargs`` is forwarded to :func:`pydantic.Field` unchanged.
@@ -218,6 +228,7 @@ def arg(
     *,
     optional: bool = False,
     metavar: str | None = None,
+    group: str | None = None,
     **field_kwargs: Unpack[FieldKwargs],
 ) -> Any:
     """Declare a field as a *positional* command-line argument.
@@ -231,6 +242,8 @@ def arg(
     Args:
         optional: Allow the value to be omitted (argparse ``nargs="?"``).
         metavar: Override the value placeholder shown in ``--help``.
+        group: Title of the ``--help`` argument group this argument is listed under
+            (see :func:`option`).
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -241,6 +254,8 @@ def arg(
         cli_meta["optional"] = True
     if metavar is not None:
         cli_meta["metavar"] = metavar
+    if group is not None:
+        cli_meta["group"] = group
     return _make_field(cli_meta, field_kwargs)
 
 
@@ -250,6 +265,7 @@ def option(
     count: bool = False,
     optional: bool = False,
     metavar: str | None = None,
+    group: str | None = None,
     **field_kwargs: Unpack[FieldKwargs],
 ) -> Any:
     """Declare a field as a command-line *option* (``--name``).
@@ -264,6 +280,12 @@ def option(
         optional: Allow ``--opt`` to be given with no value, yielding ``None`` (declare
             the field as ``T | None``).
         metavar: Override the value placeholder shown in ``--help``.
+        group: Title of the ``--help`` argument group this option is listed under.
+            Same-level arguments sharing a title -- via ``arg``/``option``, or a sibling
+            nested :func:`group` that resolves to the same title -- are displayed
+            together.  (A field nested *inside* a group always follows that group's
+            title.)  Grouping is display-only: it does not change parsing, dests or the
+            field name.
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -278,6 +300,44 @@ def option(
         cli_meta["optional"] = True
     if metavar is not None:
         cli_meta["metavar"] = metavar
+    if group is not None:
+        cli_meta["group"] = group
+    return _make_field(cli_meta, field_kwargs)
+
+
+def group(
+    *,
+    title: str | None = None,
+    **field_kwargs: Any,
+) -> Any:
+    """Declare a field as a *nested argument group*.
+
+    The field's type must be a :class:`BaseCmdModel` subclass; that child model's own
+    fields are *flattened* into the parent command as command-line arguments and listed
+    together under a titled group in ``--help``.  Unlike a sub-command the child does not
+    become a CLI verb and its :meth:`~BaseCmdModel.run` is never called -- the parsed
+    child instance is simply stored on the parent field, giving you structured access
+    (``self.<field>.<child_field>``).
+
+    Because the group's arguments share the parent command's flat namespace, every
+    flattened field name must be unique across the command (a clash raises
+    :class:`InvalidCommandError`).  A group field cannot be optional (``T | None``): a
+    flattened group is always present, so make its *sub-fields* optional instead.
+
+    A ``BaseCmdModel``-typed field is treated as a group automatically; reach for this
+    wrapper to override the group *title* or forward :func:`pydantic.Field` arguments.
+
+    Args:
+        title: The ``--help`` group title.  When omitted the title falls back to the
+            child class's :attr:`~BaseCmdModel.cmd_name` (if set), then its class name.
+        **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
+
+    Returns:
+        A ``pydantic.Field`` marking the field as a nested group.
+    """
+    cli_meta: dict[str, Any] = {}
+    if title is not None:
+        cli_meta["group_title"] = title
     return _make_field(cli_meta, field_kwargs)
 
 
@@ -513,8 +573,68 @@ class BaseCmdModel(BaseModel):
             sub._build(sub_parser, prefix=sub_prefix, depth=depth + 1, counter=counter)
 
     @classmethod
+    def _iter_cli_fields(
+        cls,
+        prefix: str,
+        group_title: str | None = None,
+        _seen: frozenset[type[BaseCmdModel]] = frozenset(),
+    ) -> Iterator[tuple[type[BaseCmdModel], str, FieldInfo, str | None]]:
+        """Yield every CLI field of this command, flattening nested groups.
+
+        A field whose type is a :class:`BaseCmdModel` subclass is a *group*: it is not
+        emitted itself; instead its own fields are yielded (recursively) so they render
+        as flat command-line arguments listed under a titled ``--help`` group.
+
+        Args:
+            prefix: Dest prefix isolating this command's fields (shared, unchanged, by a
+                group's flattened fields so they live in the same flat namespace).
+            group_title: The enclosing group title, propagated to nested fields; ``None``
+                at the top level.
+            _seen: Group classes already expanded on this path, guarding against cycles.
+
+        Yields:
+            ``(owner, name, field, group_title)`` tuples: the class declaring the field,
+            its name, its ``FieldInfo`` and the group title it should be listed under (or
+            ``None`` for the command's ungrouped arguments).
+        """
+        if cls in _seen:
+            raise InvalidCommandError(f"{cls.__name__}: recursive argument group detected")
+        seen = _seen | {cls}
+        for name, field in cls.model_fields.items():
+            meta = _field_meta(field)
+            child = _group_child(field)
+            if child is not None:
+                # The reserved-name guard in _add_one_argument only sees emitted leaf
+                # fields; a group field is expanded, not emitted, so check it here or a
+                # `run: Sub = group()` would silently shadow the command API.
+                if name in _RESERVED_NAMES:
+                    raise InvalidCommandError(
+                        f"{cls.__name__}.{name}: field name {name!r} is reserved by the "
+                        f"command API; rename the group field, or annotate class-owned "
+                        f"attributes as ClassVar"
+                    )
+                if _unwrap_optional(field.annotation)[1]:
+                    raise InvalidCommandError(
+                        f"{cls.__name__}.{name}: a group field cannot be optional "
+                        f"({field.annotation!r}); a flattened group is always present, so "
+                        f"`T | None` is meaningless. Give the group's sub-fields defaults "
+                        f"instead of making the whole group optional"
+                    )
+                if child.sub_commands:
+                    raise InvalidCommandError(
+                        f"{cls.__name__}.{name}: group command {child.__name__} cannot "
+                        f"declare sub_commands (a group is flattened, not a CLI verb)"
+                    )
+                # An enclosing group's title wins so nested groups render as one section.
+                title = group_title if group_title is not None else _group_title(child, meta)
+                yield from child._iter_cli_fields(prefix, group_title=title, _seen=seen)
+            else:
+                field_group = group_title if group_title is not None else meta.get("group")
+                yield cls, name, field, field_group
+
+    @classmethod
     def _add_arguments(cls, parser: argparse.ArgumentParser, prefix: str) -> bool:
-        """Add every field of this command to *parser* as a CLI argument.
+        """Add every field of this command (and its flattened groups) to *parser*.
 
         Args:
             parser: The parser representing this command.
@@ -525,122 +645,159 @@ class BaseCmdModel(BaseModel):
             sub-commands may not have positionals -- they would swallow the token).
         """
         has_positional = False
-        for name, field in cls.model_fields.items():
-            if name in _RESERVED_NAMES:
-                raise InvalidCommandError(
-                    f"{cls.__name__}.{name}: field name {name!r} is reserved by the command API; "
-                    f"rename the field, or annotate class-owned attributes as ClassVar"
-                )
-
-            extra = field.json_schema_extra
-            meta: dict[str, Any] = extra if isinstance(extra, dict) else {}
-
-            abrv = meta.get("abrv")
-            force_positional = meta.get("positional")
-            value_optional = bool(meta.get("optional", False))
-            is_count = bool(meta.get("count", False))
-            metavar = meta.get("metavar")
-
-            inner, is_optional = _unwrap_optional(field.annotation)
-            origin = get_origin(inner)
-            type_args = get_args(inner)
-            is_variadic_tuple = origin is tuple and len(type_args) == 2 and type_args[1] is Ellipsis
-            is_fixed_tuple = origin is tuple and not is_variadic_tuple and bool(type_args)
-            is_list = origin in (list, set, frozenset) or is_variadic_tuple
-            is_bool = inner is bool
-            required = field.is_required()
-
-            if is_count and inner is not int:
-                raise InvalidCommandError(
-                    f"{cls.__name__}.{name}: count=True requires an int field"
-                )
-            if is_count and force_positional:
-                raise InvalidCommandError(
-                    f"{cls.__name__}.{name}: count and positional are mutually exclusive"
-                )
-            if abrv is not None and str(abrv).isdigit():
-                raise InvalidCommandError(
-                    f"{cls.__name__}.{name}: numeric abbreviation {abrv!r} would disable "
-                    f"negative-number parsing; use a non-numeric abbreviation"
-                )
-
-            # Positional unless it is a flag/count/option; an explicit meta wins.
-            if force_positional is None:
-                positional = required and not is_bool and not is_count
-            else:
-                positional = bool(force_positional)
-
+        groups: dict[str, argparse._ArgumentGroup] = {}
+        seen_dests: set[str] = set()
+        for owner, name, field, group_title in cls._iter_cli_fields(prefix):
             dest = f"{prefix}{name}"
-            kwargs: dict[str, Any] = {"default": argparse.SUPPRESS}
-            if field.description:
-                kwargs["help"] = field.description
+            if dest in seen_dests:
+                raise InvalidCommandError(
+                    f"{owner.__name__}.{name}: duplicate command-line argument {name!r}; "
+                    f"flattened argument groups share {cls.__name__}'s namespace, so field "
+                    f"names must be unique across the command and its groups"
+                )
+            seen_dests.add(dest)
 
-            if is_bool and not is_count:
-                # Booleans are always flags; a bare required bool is contradictory since
-                # an absent flag must resolve to a concrete value.
-                if required:
-                    raise InvalidCommandError(
-                        f"{cls.__name__}.{name}: a boolean flag must have a default "
-                        f"(e.g. `{name}: bool = Field(False)`)"
-                    )
-                # Direction (and the absent value) follow the default.
-                store_false = field.default is True
-                kwargs["action"] = "store_false" if store_false else "store_true"
-                kwargs["default"] = store_false
-                positional = False
-            elif is_count:
-                # A counter's natural absent value is 0 (or the field default).
-                kwargs["action"] = "count"
-                kwargs["default"] = field.default if isinstance(field.default, int) else 0
-                positional = False
-            elif is_fixed_tuple:
-                # A heterogeneous fixed-length tuple: enforce exact arity and let pydantic
-                # coerce each position, since a single argparse type= cannot span them.
-                kwargs["nargs"] = len(type_args)
+            if group_title is None:
+                target: argparse.ArgumentParser | argparse._ArgumentGroup = parser
+            elif group_title in groups:
+                target = groups[group_title]
             else:
-                element = type_args[0] if is_list and type_args else inner
-                converter = _scalar_converter(element)
-                if converter is not None:
-                    kwargs["type"] = converter
-                choices = _choices_for(element)
-                if choices is not None:
-                    kwargs["choices"] = choices
+                target = groups[group_title] = parser.add_argument_group(group_title)
 
-                if is_list:
-                    # A required list needs at least one value regardless of whether it
-                    # renders as a positional or an option.
-                    at_least_one = required and not value_optional
-                    kwargs["nargs"] = "+" if at_least_one else "*"
-                elif value_optional or (positional and not required):
-                    # A value that may be omitted: an explicit optional value, or a
-                    # positional carrying a default (positionals are otherwise required).
-                    kwargs["nargs"] = "?"
-                    if value_optional and not positional:
-                        if not is_optional:
-                            raise InvalidCommandError(
-                                f"{cls.__name__}.{name}: optional=True on an option requires "
-                                f"the field to be declared `T | None`"
-                            )
-                        kwargs["const"] = None
-
-            cls._set_metavar(kwargs, name, metavar, positional, is_bool or is_count)
-
-            try:
-                if positional:
-                    # For a positional the name *is* the dest; a metavar (set above) keeps
-                    # the prefixed dest out of the help text.
-                    has_positional = True
-                    parser.add_argument(dest, **kwargs)
-                else:
-                    option = f"--{name.replace('_', '-')}"
-                    if required and not is_bool and not is_count:
-                        kwargs["required"] = True
-                    flags = [option, f"-{abrv}"] if abrv else [option]
-                    parser.add_argument(*flags, dest=dest, **kwargs)
-            except argparse.ArgumentError as err:
-                raise InvalidCommandError(f"{cls.__name__}.{name}: {err}") from err
-
+            if cls._add_one_argument(target, owner, name, field, dest):
+                has_positional = True
         return has_positional
+
+    @classmethod
+    def _add_one_argument(
+        cls,
+        target: argparse.ArgumentParser | argparse._ArgumentGroup,
+        owner: type[BaseCmdModel],
+        name: str,
+        field: FieldInfo,
+        dest: str,
+    ) -> bool:
+        """Add a single field to *target* as a CLI argument.
+
+        Args:
+            target: The parser or argument group the argument is added to.
+            owner: The command class declaring the field (for error messages).
+            name: The field name.
+            field: The field's ``FieldInfo``.
+            dest: The prefixed argparse ``dest`` for this argument.
+
+        Returns:
+            Whether the argument was added as a positional.
+        """
+        if name in _RESERVED_NAMES:
+            raise InvalidCommandError(
+                f"{owner.__name__}.{name}: field name {name!r} is reserved by the command API; "
+                f"rename the field, or annotate class-owned attributes as ClassVar"
+            )
+
+        meta = _field_meta(field)
+
+        abrv = meta.get("abrv")
+        force_positional = meta.get("positional")
+        value_optional = bool(meta.get("optional", False))
+        is_count = bool(meta.get("count", False))
+        metavar = meta.get("metavar")
+
+        inner, is_optional = _unwrap_optional(field.annotation)
+        origin = get_origin(inner)
+        type_args = get_args(inner)
+        is_variadic_tuple = origin is tuple and len(type_args) == 2 and type_args[1] is Ellipsis
+        is_fixed_tuple = origin is tuple and not is_variadic_tuple and bool(type_args)
+        is_list = origin in (list, set, frozenset) or is_variadic_tuple
+        is_bool = inner is bool
+        required = field.is_required()
+
+        if is_count and inner is not int:
+            raise InvalidCommandError(f"{owner.__name__}.{name}: count=True requires an int field")
+        if is_count and force_positional:
+            raise InvalidCommandError(
+                f"{owner.__name__}.{name}: count and positional are mutually exclusive"
+            )
+        if abrv is not None and str(abrv).isdigit():
+            raise InvalidCommandError(
+                f"{owner.__name__}.{name}: numeric abbreviation {abrv!r} would disable "
+                f"negative-number parsing; use a non-numeric abbreviation"
+            )
+
+        # Positional unless it is a flag/count/option; an explicit meta wins.
+        if force_positional is None:
+            positional = required and not is_bool and not is_count
+        else:
+            positional = bool(force_positional)
+
+        kwargs: dict[str, Any] = {"default": argparse.SUPPRESS}
+        if field.description:
+            kwargs["help"] = field.description
+
+        if is_bool and not is_count:
+            # Booleans are always flags; a bare required bool is contradictory since
+            # an absent flag must resolve to a concrete value.
+            if required:
+                raise InvalidCommandError(
+                    f"{owner.__name__}.{name}: a boolean flag must have a default "
+                    f"(e.g. `{name}: bool = Field(False)`)"
+                )
+            # Direction (and the absent value) follow the default.
+            store_false = field.default is True
+            kwargs["action"] = "store_false" if store_false else "store_true"
+            kwargs["default"] = store_false
+            positional = False
+        elif is_count:
+            # A counter's natural absent value is 0 (or the field default).
+            kwargs["action"] = "count"
+            kwargs["default"] = field.default if isinstance(field.default, int) else 0
+            positional = False
+        elif is_fixed_tuple:
+            # A heterogeneous fixed-length tuple: enforce exact arity and let pydantic
+            # coerce each position, since a single argparse type= cannot span them.
+            kwargs["nargs"] = len(type_args)
+        else:
+            element = type_args[0] if is_list and type_args else inner
+            converter = _scalar_converter(element)
+            if converter is not None:
+                kwargs["type"] = converter
+            choices = _choices_for(element)
+            if choices is not None:
+                kwargs["choices"] = choices
+
+            if is_list:
+                # A required list needs at least one value regardless of whether it
+                # renders as a positional or an option.
+                at_least_one = required and not value_optional
+                kwargs["nargs"] = "+" if at_least_one else "*"
+            elif value_optional or (positional and not required):
+                # A value that may be omitted: an explicit optional value, or a
+                # positional carrying a default (positionals are otherwise required).
+                kwargs["nargs"] = "?"
+                if value_optional and not positional:
+                    if not is_optional:
+                        raise InvalidCommandError(
+                            f"{owner.__name__}.{name}: optional=True on an option requires "
+                            f"the field to be declared `T | None`"
+                        )
+                    kwargs["const"] = None
+
+        cls._set_metavar(kwargs, name, metavar, positional, is_bool or is_count)
+
+        try:
+            if positional:
+                # For a positional the name *is* the dest; a metavar (set above) keeps
+                # the prefixed dest out of the help text.
+                target.add_argument(dest, **kwargs)
+                return True
+            option = f"--{name.replace('_', '-')}"
+            if required and not is_bool and not is_count:
+                kwargs["required"] = True
+            flags = [option, f"-{abrv}"] if abrv else [option]
+            target.add_argument(*flags, dest=dest, **kwargs)
+        except argparse.ArgumentError as err:
+            raise InvalidCommandError(f"{owner.__name__}.{name}: {err}") from err
+        return False
 
     @staticmethod
     def _set_metavar(
@@ -716,7 +873,13 @@ class BaseCmdModel(BaseModel):
             The constructed command instance.
         """
         kwargs: dict[str, Any] = {}
-        for name in cls.model_fields:
+        for name, field in cls.model_fields.items():
+            child = _group_child(field)
+            if child is not None:
+                # A group's fields share this command's flat namespace (same prefix), so
+                # rebuild the nested instance from the very same parsed values.
+                kwargs[name] = child._from_namespace(namespace, prefix)
+                continue
             dest = f"{prefix}{name}"
             if hasattr(namespace, dest):
                 kwargs[name] = getattr(namespace, dest)
@@ -742,6 +905,42 @@ class BaseCmdModel(BaseModel):
 #####################################################################################
 # Helpers
 #####################################################################################
+def _field_meta(field: FieldInfo) -> dict[str, Any]:
+    """Return a field's CLI metadata mapping (its ``json_schema_extra`` dict, or ``{}``)."""
+    extra = field.json_schema_extra
+    return extra if isinstance(extra, dict) else {}
+
+
+def _group_child(field: FieldInfo) -> type[BaseCmdModel] | None:
+    """Return the nested command class for a group field, or ``None``.
+
+    A field is a group when its annotation is (or optionally wraps) a
+    :class:`BaseCmdModel` subclass; its fields are then flattened into the parent.
+    """
+    inner, _ = _unwrap_optional(field.annotation)
+    if isinstance(inner, type) and issubclass(inner, BaseCmdModel):
+        return inner
+    return None
+
+
+def _group_title(child: type[BaseCmdModel], meta: dict[str, Any]) -> str:
+    """Resolve a nested group's ``--help`` title.
+
+    Precedence: an explicit ``group(title=...)`` override, then a ``group=`` string set
+    via ``arg``/``option`` on the same field, then the child's ``cmd_name`` class
+    attribute (verbatim), then the child class name.
+    """
+    override = meta.get("group_title")
+    if override is not None:
+        return str(override)
+    string_title = meta.get("group")
+    if string_title is not None:
+        return str(string_title)
+    if child.cmd_name is not None:
+        return str(child.cmd_name)
+    return child.__name__
+
+
 def _first_line(doc: str | None) -> str | None:
     """Return the first non-empty line of a docstring, for sub-command help listings."""
     if not doc:

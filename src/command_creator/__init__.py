@@ -49,7 +49,7 @@ from __future__ import annotations
 from pydantic import Field
 
 from ._info import __author__, __version__
-from .command import BaseCmdModel, InvalidCommandError, arg, arg_meta, option
+from .command import BaseCmdModel, InvalidCommandError, arg, arg_meta, group, option
 
 __all__ = [
     "BaseCmdModel",
@@ -59,5 +59,6 @@ __all__ = [
     "__version__",
     "arg",
     "arg_meta",
+    "group",
     "option",
 ]

@@ -25,6 +25,7 @@ This package is particularly useful for developers who want to quickly set up CL
   - [default and default\_factory](#default-and-default_factory)
   - [count](#count)
   - [completer](#completer)
+- [Argument Groups](#argument-groups)
 - [Sub-commands](#sub-commands)
 - [Using with Sphinx-Autoprogram](#using-with-sphinx-autoprogram)
 - [BASH and ZSH Auto-complete](#bash-and-zsh-auto-complete)
@@ -176,6 +177,68 @@ For example, if you have a list of colors, you could use the following:
 def color_completer():
     return ["red", "green", "blue"]
 ```
+
+## Argument Groups
+
+Arguments can be organised into titled groups in the `--help` output.
+There are two ways to do this.
+
+**1. The `group` keyword on `arg()` / `option()`**
+
+Pass `group="Title"` and the argument is listed under that heading.
+Same-level arguments sharing a title are displayed together.
+Grouping is display-only: it does not change parsing, dests or the field name.
+
+```python
+from command_creator import BaseCmdModel, option
+
+
+class Serve(BaseCmdModel):
+    """Run the server."""
+
+    host: str = option(default="localhost", group="Network")
+    port: int = option(default=8080, group="Network")
+    debug: bool = option(default=False)  # ungrouped
+
+    def run(self) -> None: ...
+```
+
+**2. A nested command as a field**
+
+A field whose type is itself a `BaseCmdModel` subclass is *flattened*: the child model's
+fields become command-line arguments on the parent, listed together under one group.
+The child does not become a sub-command and its `run()` is never called - the parsed child
+instance is simply stored on the field, giving you structured access
+(`self.connection.host`).
+
+Because the group's arguments share the parent's flat namespace, every flattened field
+name must be unique across the command (a clash raises `InvalidCommandError`).
+
+```python
+from command_creator import BaseCmdModel, group, option
+
+
+class Connection(BaseCmdModel):
+    """Connection settings."""
+
+    host: str = option(default="localhost", description="server host")
+    port: int = option(default=5432, description="server port")
+
+
+class Serve(BaseCmdModel):
+    """Run the server."""
+
+    # A BaseCmdModel-typed field is auto-detected as a group; use group() to
+    # override the title or forward pydantic Field arguments.
+    connection: Connection = group(title="Connection Settings")
+    debug: bool = option(default=False)
+
+    def run(self) -> None:
+        print(f"serving on {self.connection.host}:{self.connection.port}")
+```
+
+The group title defaults to the child's `cmd_name` (if set), then the child class name;
+`group(title=...)` overrides it. Groups nest to any depth.
 
 ## Sub-commands
 

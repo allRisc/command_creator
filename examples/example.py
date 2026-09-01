@@ -28,7 +28,7 @@ Try it out::
 from enum import StrEnum
 from typing import ClassVar
 
-from command_creator import BaseCmdModel, arg, option
+from command_creator import BaseCmdModel, arg, group, option
 
 
 class Casing(StrEnum):
@@ -47,10 +47,14 @@ class Greet(BaseCmdModel):
 
     # arg() -> a positional argument (no default -> required).
     name: str = arg(description="who to greet")
-    # option() -> a `--loud`/`-l` option.
-    loud: bool = option(default=False, abrv="l", description="SHOUT the greeting")
+    # group="Formatting" lists these two options together under a --help heading.
+    loud: bool = option(
+        default=False, abrv="l", description="SHOUT the greeting", group="Formatting"
+    )
     # An Enum field becomes a `--casing {plain,caps,titled}` choice for free.
-    casing: Casing = option(default=Casing.titled, description="how to case the greeting")
+    casing: Casing = option(
+        default=Casing.titled, description="how to case the greeting", group="Formatting"
+    )
 
     def run(self) -> None:
         message = f"Hello, {self.name}!"
@@ -61,6 +65,16 @@ class Greet(BaseCmdModel):
         print(message.upper() if self.loud else message)
 
 
+class Auth(BaseCmdModel):
+    """Authentication options for the remote."""
+
+    cmd_name: ClassVar = "Authentication"
+
+    # Flattened onto the parent as `--username` / `--token`, grouped in --help.
+    username: str | None = option(default=None, description="user to authenticate as")
+    token: str | None = option(default=None, description="access token")
+
+
 class RemoteAdd(BaseCmdModel):
     """Add a remote."""
 
@@ -68,9 +82,16 @@ class RemoteAdd(BaseCmdModel):
 
     url: str = arg(description="remote URL")
     name: str = option(default="origin", description="local name for the remote")
+    # A nested command as a field becomes a titled argument group; its parsed values are
+    # reachable at `self.auth.username` / `self.auth.token`.
+    auth: Auth = group()
 
     def run(self) -> None:
         print(f"Added remote {self.name!r} -> {self.url}")
+        if self.auth.username or self.auth.token:
+            print(
+                f"  authenticating as {self.auth.username!r} (token set: {bool(self.auth.token)})"
+            )
 
 
 class Remote(BaseCmdModel):
