@@ -22,8 +22,6 @@ groups declared with :func:`group`.
 # NOTE: no ``from __future__ import annotations`` -- pydantic must resolve the
 # annotations of models defined inside test functions (see test_basics.py).
 
-from typing import ClassVar
-
 import pytest
 
 from command_creator import BaseCmdModel, CmdConfig, InvalidCommandError, arg, group, option
@@ -230,7 +228,7 @@ def test_group_child_with_sub_commands_is_rejected() -> None:
         pass
 
     class Grp(BaseCmdModel):
-        sub_commands: ClassVar = (Leaf,)
+        model_config = CmdConfig(sub_commands=(Leaf,))
         x: str = option(default="x")
 
     class Cmd(BaseCmdModel):
@@ -249,8 +247,8 @@ def test_positional_group_field_with_sibling_sub_commands_is_rejected() -> None:
         pass
 
     class Cmd(BaseCmdModel):
+        model_config = CmdConfig(sub_commands=(Child,))
         grp: NeedsPos = group()
-        sub_commands: ClassVar = (Child,)
 
     with pytest.raises(InvalidCommandError, match="positional"):
         Cmd.get_parser()

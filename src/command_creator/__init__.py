@@ -20,7 +20,7 @@
 Define a command by subclassing :class:`~command_creator.command.BaseCmdModel`, declare
 each argument with :func:`~command_creator.command.arg` (positional) or
 :func:`~command_creator.command.option`, and nest sub-commands to any depth via the
-``sub_commands`` class attribute::
+``sub_commands`` key of ``model_config`` (see :class:`~command_creator.command.CmdConfig`)::
 
     from command_creator import BaseCmdModel, arg, option
 

@@ -17,8 +17,6 @@
 #####################################################################################
 """Tests for sub-commands: aliases, arbitrary nesting depth and dispatch."""
 
-from typing import ClassVar
-
 import pytest
 
 from command_creator import BaseCmdModel, CmdConfig, InvalidCommandError, arg, option
@@ -42,8 +40,7 @@ class Add(BaseCmdModel):
     """Add an item."""
 
     # An intermediate command that groups sub-commands uses options, not positionals.
-    model_config = CmdConfig(cmd_aliases=("a", "insert"))
-    sub_commands: ClassVar = (Deep,)
+    model_config = CmdConfig(cmd_aliases=("a", "insert"), sub_commands=(Deep,))
     label: str = option(default="none", abrv="l")
 
     def run(self) -> None:
@@ -63,7 +60,7 @@ class Remove(BaseCmdModel):
 class Root(BaseCmdModel):
     """Top-level command."""
 
-    sub_commands: ClassVar = (Add, Remove)
+    model_config = CmdConfig(sub_commands=(Add, Remove))
     verbose: bool = option(default=False, abrv="v")
 
     def run(self) -> None:
@@ -152,7 +149,7 @@ def test_alias_collision_is_rejected() -> None:
         model_config = CmdConfig(cmd_aliases=("dup",))
 
     class Parent(BaseCmdModel):
-        sub_commands: ClassVar = (A, B)
+        model_config = CmdConfig(sub_commands=(A, B))
 
     with pytest.raises(InvalidCommandError):
         Parent.get_parser()
@@ -163,7 +160,7 @@ def test_self_duplicate_alias_is_rejected() -> None:
         model_config = CmdConfig(cmd_name="x", cmd_aliases=("x",))
 
     class Parent(BaseCmdModel):
-        sub_commands: ClassVar = (SelfDup,)
+        model_config = CmdConfig(sub_commands=(SelfDup,))
 
     with pytest.raises(InvalidCommandError, match="more than once"):
         Parent.get_parser()
@@ -174,11 +171,83 @@ def test_positional_with_subcommands_is_rejected() -> None:
         pass
 
     class Parent(BaseCmdModel):
+        model_config = CmdConfig(sub_commands=(Child,))
         target: str = arg(description="a positional")
-        sub_commands: ClassVar = (Child,)
 
     with pytest.raises(InvalidCommandError, match="positional"):
         Parent.get_parser()
+
+
+def test_add_sub_command_as_decorator() -> None:
+    class Parent(BaseCmdModel):
+        pass
+
+    @Parent.add_sub_command
+    class Child(BaseCmdModel):
+        value: str = arg(description="a value")
+
+    assert Parent.get_sub_commands() == (Child,)
+    root = Parent.parse(["child", "hi"])
+    assert isinstance(root.sub_command, Child)
+    assert root.sub_command.value == "hi"
+
+
+def test_add_sub_command_by_class_and_appends() -> None:
+    class First(BaseCmdModel):
+        pass
+
+    class Second(BaseCmdModel):
+        pass
+
+    class Parent(BaseCmdModel):
+        model_config = CmdConfig(sub_commands=(First,))
+
+    returned = Parent.add_sub_command(Second)
+    assert returned is Second
+    assert Parent.get_sub_commands() == (First, Second)
+
+
+def test_add_sub_command_does_not_mutate_base_class() -> None:
+    class Base(BaseCmdModel):
+        pass
+
+    class Derived(Base):
+        pass
+
+    class Extra(BaseCmdModel):
+        pass
+
+    Derived.add_sub_command(Extra)
+    assert Derived.get_sub_commands() == (Extra,)
+    assert Base.get_sub_commands() == ()  # base config untouched (own model_config dict)
+
+
+def test_add_sub_command_rejects_non_command() -> None:
+    class Parent(BaseCmdModel):
+        pass
+
+    with pytest.raises(InvalidCommandError, match="BaseCmdModel subclass"):
+        Parent.add_sub_command(object)  # type: ignore[arg-type]
+
+
+def test_add_sub_command_rejects_self() -> None:
+    class Parent(BaseCmdModel):
+        pass
+
+    with pytest.raises(InvalidCommandError, match="its own sub-command"):
+        Parent.add_sub_command(Parent)
+
+
+def test_add_sub_command_rejects_duplicate() -> None:
+    class Child(BaseCmdModel):
+        pass
+
+    class Parent(BaseCmdModel):
+        pass
+
+    Parent.add_sub_command(Child)
+    with pytest.raises(InvalidCommandError, match="already a sub-command"):
+        Parent.add_sub_command(Child)
 
 
 def test_run_and_exit_exits_zero() -> None:

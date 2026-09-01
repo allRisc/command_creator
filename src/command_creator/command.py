@@ -32,10 +32,10 @@ constructs:
   mapping.
 
 Sub-commands are declared with class-owned identity: every command class knows its own
-``cmd_name`` (defaulting to the lower-cased class name) and ``cmd_aliases``, both set in
-``model_config`` via :class:`CmdConfig`, and a parent lists its children in
-:attr:`~BaseCmdModel.sub_commands`.  Because every sub-command is itself a
-``BaseCmdModel`` this nests to an arbitrary depth.
+``cmd_name`` (defaulting to the lower-cased class name), ``cmd_aliases`` and
+``sub_commands`` (its child commands), all set in ``model_config`` via
+:class:`CmdConfig`.  Because every sub-command is itself a ``BaseCmdModel`` this nests to
+an arbitrary depth.
 """
 
 from __future__ import annotations
@@ -49,13 +49,13 @@ from collections.abc import Callable, Iterator, Sequence
 from typing import (
     TYPE_CHECKING,
     Any,
-    ClassVar,
     Literal,
     NoReturn,
     Self,
     TypedDict,
     Union,
     Unpack,
+    cast,
     get_args,
     get_origin,
 )
@@ -90,6 +90,7 @@ _RESERVED_NAMES = frozenset(
         "sub_commands",
         "get_cmd_name",
         "get_cmd_aliases",
+        "get_sub_commands",
         "get_parser",
         "parse",
     }
@@ -109,6 +110,8 @@ class CmdConfig(ConfigDict, total=False):
     """Explicit name for the (sub)command; defaults to the lower-cased class name."""
     cmd_aliases: Sequence[str]
     """Alternate names the (sub)command may be invoked by."""
+    sub_commands: Sequence[type[BaseCmdModel]]
+    """Child command classes.  Each may declare its own ``sub_commands`` (any depth)."""
 
 
 #####################################################################################
@@ -444,18 +447,16 @@ class BaseCmdModel(BaseModel):
     """Base class for a command-line command.
 
     Subclass it, declare each argument as a pydantic field and implement :meth:`run`.
-    Nest commands by listing child classes in :attr:`sub_commands`.
+    Nest commands by listing child classes in ``model_config``'s ``sub_commands`` key
+    (see :class:`CmdConfig`) or by calling :meth:`add_sub_command`.
     """
 
     # Arguments are always populated by field name (never by a pydantic alias), so a
     # field that declares an ``alias`` still constructs correctly from parsed values.
-    # ``cmd_name``/``cmd_aliases`` live here too (see :class:`CmdConfig`); subclasses set
-    # them via ``model_config = CmdConfig(...)`` and pydantic merges down the hierarchy.
+    # ``cmd_name``/``cmd_aliases``/``sub_commands`` live here too (see :class:`CmdConfig`);
+    # subclasses set them via ``model_config = CmdConfig(...)`` and pydantic merges down
+    # the hierarchy.
     model_config = CmdConfig(populate_by_name=True)
-
-    # --- Class-level command identity (not pydantic fields) --------------------------
-    sub_commands: ClassVar[Sequence[type[BaseCmdModel]]] = ()
-    """Child command classes.  Each may declare its own ``sub_commands`` (any depth)."""
 
     # --- Runtime state ---------------------------------------------------------------
     _sub_command: BaseCmdModel | None = PrivateAttr(default=None)
@@ -472,6 +473,70 @@ class BaseCmdModel(BaseModel):
     def get_cmd_aliases(cls) -> tuple[str, ...]:
         """Return the command's aliases as a tuple."""
         return tuple(cls.model_config.get("cmd_aliases") or ())
+
+    @classmethod
+    def get_sub_commands(cls) -> tuple[type[BaseCmdModel], ...]:
+        """Return this command's child commands as a tuple.
+
+        Children are read from ``model_config``'s ``sub_commands`` key (see
+        :class:`CmdConfig`), which pydantic merges down the class hierarchy.
+        """
+        return tuple(cls.model_config.get("sub_commands") or ())
+
+    # --- Sub-command registration ----------------------------------------------------
+    @classmethod
+    def add_sub_command(cls, command: type[BaseCmdModel]) -> type[BaseCmdModel]:
+        """Register *command* as a sub-command of this class.
+
+        An imperative alternative to listing children in ``model_config``'s
+        ``sub_commands`` key (see :class:`CmdConfig`).  Use it either as a class decorator
+        or by passing the class directly::
+
+            class Root(BaseCmdModel):
+                ...
+
+            @Root.add_sub_command
+            class Add(BaseCmdModel):
+                ...
+
+            Root.add_sub_command(Remove)  # equivalent, given an existing class
+
+        The child is appended to this class's ``sub_commands`` config; the class does not
+        need to declare it first.  Any children inherited from a base class are preserved
+        and the base class is left untouched (pydantic gives each class its own
+        ``model_config`` dict).  Name/alias clashes are still validated when the parser is
+        built (see :meth:`get_parser`).
+
+        Args:
+            command: The :class:`BaseCmdModel` subclass to add as a child command.
+
+        Returns:
+            *command* unchanged, so the method can be used as a decorator.
+
+        Raises:
+            InvalidCommandError: If *command* is not a :class:`BaseCmdModel` subclass, is
+                this class itself, or is already registered as a sub-command.
+        """
+        if not (isinstance(command, type) and issubclass(command, BaseCmdModel)):
+            raise InvalidCommandError(
+                f"{cls.__name__}.add_sub_command: {command!r} is not a BaseCmdModel subclass"
+            )
+        if command is cls:
+            raise InvalidCommandError(
+                f"{cls.__name__}.add_sub_command: a command cannot be its own sub-command"
+            )
+        # Read the currently-visible children (respecting base-class config merged down
+        # by pydantic) and write the new tuple back to *this* class's own model_config
+        # dict, so a base class's children are never mutated.
+        current = cls.get_sub_commands()
+        if command in current:
+            raise InvalidCommandError(
+                f"{cls.__name__}.add_sub_command: {command.__name__} is already a sub-command"
+            )
+        # pydantic types ``model_config`` as the base ``ConfigDict``; view it as our
+        # ``CmdConfig`` so the custom ``sub_commands`` key type-checks on assignment.
+        cast("CmdConfig", cls.model_config)["sub_commands"] = (*current, command)
+        return command
 
     # --- User hooks ------------------------------------------------------------------
     def run(self) -> None:
@@ -541,7 +606,8 @@ class BaseCmdModel(BaseModel):
         """
         has_positional = cls._add_arguments(parser, prefix)
 
-        if not cls.sub_commands:
+        sub_commands = cls.get_sub_commands()
+        if not sub_commands:
             return
 
         if has_positional:
@@ -558,7 +624,7 @@ class BaseCmdModel(BaseModel):
         )
 
         seen: dict[str, type[BaseCmdModel]] = {}
-        for sub in cls.sub_commands:
+        for sub in sub_commands:
             names = (sub.get_cmd_name(), *sub.get_cmd_aliases())
             for name in names:
                 if name in seen:
@@ -633,7 +699,7 @@ class BaseCmdModel(BaseModel):
                         f"`T | None` is meaningless. Give the group's sub-fields defaults "
                         f"instead of making the whole group optional"
                     )
-                if child.sub_commands:
+                if child.get_sub_commands():
                     raise InvalidCommandError(
                         f"{cls.__name__}.{name}: group command {child.__name__} cannot "
                         f"declare sub_commands (a group is flattened, not a CLI verb)"

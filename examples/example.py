@@ -26,7 +26,6 @@ Try it out::
 """
 
 from enum import StrEnum
-from typing import ClassVar
 
 from command_creator import BaseCmdModel, CmdConfig, arg, group, option
 
@@ -97,8 +96,7 @@ class RemoteAdd(BaseCmdModel):
 class Remote(BaseCmdModel):
     """Manage remotes (has its own sub-commands, nested to any depth)."""
 
-    model_config = CmdConfig(cmd_aliases=("rmt",))
-    sub_commands: ClassVar = (RemoteAdd,)
+    model_config = CmdConfig(cmd_aliases=("rmt",), sub_commands=(RemoteAdd,))
 
     def run(self) -> None:
         # Runs before the selected child (whole-path dispatch); nothing to do here.
@@ -108,9 +106,9 @@ class Remote(BaseCmdModel):
 class Tool(BaseCmdModel):
     """A small example tool.  Its sub-commands do the real work."""
 
+    model_config = CmdConfig(sub_commands=(Greet, Remote))
     # A repeat-counter: `-vvv` -> verbose == 3.
     verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
-    sub_commands: ClassVar = (Greet, Remote)
 
     def run(self) -> None:
         if self.verbose:
