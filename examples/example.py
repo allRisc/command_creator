@@ -28,9 +28,7 @@ Try it out::
 from enum import StrEnum
 from typing import ClassVar
 
-from pydantic import Field
-
-from command_creator import ArgMeta, BaseCmdModel
+from command_creator import BaseCmdModel, arg, option
 
 
 class Casing(StrEnum):
@@ -47,12 +45,12 @@ class Greet(BaseCmdModel):
     # Aliases let the sub-command be invoked as `greet`, `hi` or `hello`.
     cmd_aliases: ClassVar = ("hi", "hello")
 
-    # No default -> a required positional argument.
-    name: str = Field(description="who to greet")
-    # A default -> an option; `abrv` adds the short `-l` form via metadata.
-    loud: bool = Field(False, description="SHOUT the greeting", json_schema_extra=ArgMeta(abrv="l"))
+    # arg() -> a positional argument (no default -> required).
+    name: str = arg(description="who to greet")
+    # option() -> a `--loud`/`-l` option.
+    loud: bool = option(default=False, abrv="l", description="SHOUT the greeting")
     # An Enum field becomes a `--casing {plain,caps,titled}` choice for free.
-    casing: Casing = Field(Casing.titled, description="how to case the greeting")
+    casing: Casing = option(default=Casing.titled, description="how to case the greeting")
 
     def run(self) -> None:
         message = f"Hello, {self.name}!"
@@ -68,8 +66,8 @@ class RemoteAdd(BaseCmdModel):
 
     cmd_name: ClassVar = "add"
 
-    url: str = Field(description="remote URL")
-    name: str = Field("origin", description="local name for the remote")
+    url: str = arg(description="remote URL")
+    name: str = option(default="origin", description="local name for the remote")
 
     def run(self) -> None:
         print(f"Added remote {self.name!r} -> {self.url}")
@@ -90,9 +88,7 @@ class Tool(BaseCmdModel):
     """A small example tool.  Its sub-commands do the real work."""
 
     # A repeat-counter: `-vvv` -> verbose == 3.
-    verbose: int = Field(
-        0, description="increase verbosity", json_schema_extra=ArgMeta(count=True, abrv="v")
-    )
+    verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
     sub_commands: ClassVar = (Greet, Remote)
 
     def run(self) -> None:

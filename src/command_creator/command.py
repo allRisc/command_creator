@@ -23,11 +23,13 @@ constructs:
 
 * the field's type annotation drives argument type, list handling and choices
   (``Enum`` / ``Literal``),
-* ``pydantic.Field(default=..., description=...)`` supplies the default value and
-  the ``--help`` text,
-* anything that pydantic's ``Field`` has no native concept of (an abbreviation, a
-  forced-positional, a count flag, a custom metavar) is passed through the field's
-  ``json_schema_extra`` metadata, typed by the :class:`ArgMeta` ``TypedDict``.
+* :func:`arg` (positional) and :func:`option` (an option) wrap :func:`pydantic.Field`,
+  forwarding every ``Field`` argument (``default``, ``description``, validation
+  constraints, ...) for whatever pydantic version is installed, while adding the
+  CLI-only extras (``abrv``, ``count``, ``optional``, ``metavar``),
+* those CLI-only extras are stored in the field's ``json_schema_extra`` metadata; when
+  you build a raw ``pydantic.Field`` yourself, :func:`arg_meta` produces the same
+  mapping.
 
 Sub-commands are declared with class-owned identity: every command class knows its
 own :attr:`~BaseCmdModel.cmd_name` (defaulting to the lower-cased class name) and
@@ -43,8 +45,9 @@ import enum
 import itertools
 import sys
 import types
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import (
+    TYPE_CHECKING,
     Any,
     ClassVar,
     Literal,
@@ -52,16 +55,26 @@ from typing import (
     Self,
     TypedDict,
     Union,
+    Unpack,
     get_args,
     get_origin,
 )
 
-from pydantic import BaseModel, ConfigDict, PrivateAttr
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
+if TYPE_CHECKING:
+    import re
+
+    from annotated_types import SupportsGe, SupportsGt, SupportsLe, SupportsLt
+    from pydantic import AliasChoices, AliasPath, Discriminator
+    from pydantic.fields import Deprecated, FieldInfo
 
 __all__ = [
-    "ArgMeta",
     "BaseCmdModel",
     "InvalidCommandError",
+    "arg",
+    "arg_meta",
+    "option",
 ]
 
 # Field names that would collide with the command API and break dispatch/identity.
@@ -93,45 +106,179 @@ class InvalidCommandError(Exception):
 
 
 #####################################################################################
-# Argument metadata
+# Argument declaration
 #####################################################################################
-class ArgMeta(TypedDict, total=False):
-    """Command-line metadata for a field, supplied via ``Field(json_schema_extra=...)``.
+class FieldKwargs(TypedDict, total=False):
+    """Every keyword :func:`pydantic.Field` accepts (mirrored for pydantic 2.x).
 
-    Everything here is intentionally *not* something pydantic's ``Field`` already
-    models.  :class:`ArgMeta` is a ``TypedDict`` (all keys optional), so it names and
-    types the accepted options for editors and type-checkers while remaining a plain
-    ``dict`` at runtime::
+    Used only to type the ``**field_kwargs`` forwarded by :func:`arg` / :func:`option`
+    (via :data:`typing.Unpack`) so those arguments keep full editor/type-checker
+    support.  ``default`` is included; ``json_schema_extra`` is intentionally omitted --
+    :func:`arg` / :func:`option` own it (use :func:`arg_meta` for a raw ``Field``).
+    """
 
-        from pydantic import Field
-        from command_creator import ArgMeta
+    default: Any
+    default_factory: Callable[[], Any] | Callable[[dict[str, Any]], Any] | None
+    alias: str | None
+    alias_priority: int | None
+    validation_alias: str | AliasPath | AliasChoices | None
+    serialization_alias: str | None
+    title: str | None
+    field_title_generator: Callable[[str, FieldInfo], str] | None
+    description: str | None
+    examples: list[Any] | None
+    exclude: bool | None
+    exclude_if: Callable[[Any], bool] | None
+    discriminator: str | Discriminator | None
+    deprecated: Deprecated | str | bool | None
+    frozen: bool | None
+    validate_default: bool | None
+    repr: bool
+    init: bool | None
+    init_var: bool | None
+    kw_only: bool | None
+    pattern: str | re.Pattern[str] | None
+    strict: bool | None
+    coerce_numbers_to_str: bool | None
+    gt: SupportsGt | None
+    ge: SupportsGe | None
+    lt: SupportsLt | None
+    le: SupportsLe | None
+    multiple_of: float | None
+    allow_inf_nan: bool | None
+    max_digits: int | None
+    decimal_places: int | None
+    min_length: int | None
+    max_length: int | None
+    union_mode: Literal["smart", "left_to_right"]
+    fail_fast: bool | None
 
-        class Cmd(BaseCmdModel):
-            verbose: bool = Field(False, description="be loud",
-                                  json_schema_extra=ArgMeta(abrv="v"))
 
-    Pass only the options you need; omitted keys are simply absent.
+def arg_meta(
+    *,
+    abrv: str | None = None,
+    positional: bool | None = None,
+    optional: bool | None = None,
+    count: bool | None = None,
+    metavar: str | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Build the command-line metadata mapping for a *raw* ``pydantic.Field``.
 
-    Keys:
+    Prefer :func:`arg` / :func:`option`; reach for this only when you construct the
+    ``Field`` yourself and want to populate ``json_schema_extra`` directly::
+
+        path: str = Field(json_schema_extra=arg_meta(metavar="PATH", my_tag="io"))
+
+    Unset recognised options are omitted; any other keyword is stored verbatim, so the
+    result also carries metadata your own code or other tooling reads back.
+
+    Args:
         abrv: A single short-option abbreviation, e.g. ``"v"`` exposes ``-v`` alongside
             the long ``--<name>`` option.  Ignored for positional arguments.
         positional: Force the argument to be positional (``True``) or an option
             (``False``).  When omitted the argument is positional if the field is
             required and an option otherwise.
-        optional: Allow the argument's value to be omitted (argparse ``nargs="?"``).
-            For an option this means ``--opt`` may be given with no following value,
-            in which case the value becomes ``None`` (declare the field as ``T | None``).
-        count: Treat the argument as a repeat-counter (argparse ``action="count"``),
-            e.g. ``-vvv`` -> ``3``.  Only valid on ``int`` fields and mutually
-            exclusive with ``positional``.
+        optional: Allow the argument's value to be omitted (argparse ``nargs="?"``).  For
+            an option this means ``--opt`` may be given with no following value, in which
+            case the value becomes ``None`` (declare the field as ``T | None``).
+        count: Treat the argument as a repeat-counter (argparse ``action="count"``), e.g.
+            ``-vvv`` -> ``3``.  Only valid on ``int`` fields and mutually exclusive with
+            ``positional``.
         metavar: Override the placeholder shown for the argument's value in ``--help``.
-    """
+        **extra: Any additional metadata keys, stored verbatim.
 
-    abrv: str
-    positional: bool
-    optional: bool
-    count: bool
-    metavar: str
+    Returns:
+        A plain ``dict`` suitable for ``Field(json_schema_extra=...)``.
+    """
+    recognised = {
+        "abrv": abrv,
+        "positional": positional,
+        "optional": optional,
+        "count": count,
+        "metavar": metavar,
+    }
+    data: dict[str, Any] = {key: value for key, value in recognised.items() if value is not None}
+    data.update(extra)  # extra keys pass through verbatim, including explicit None
+    return data
+
+
+def _make_field(cli_meta: dict[str, Any], field_kwargs: FieldKwargs) -> Any:
+    """Create a ``pydantic.Field`` carrying *cli_meta* in its ``json_schema_extra``.
+
+    Every keyword in ``field_kwargs`` is forwarded to :func:`pydantic.Field` unchanged.
+    """
+    # Unpacking a TypedDict into Field's overloaded signature defeats mypy's overload
+    # resolution; the call sites are fully checked via FieldKwargs, so the internal
+    # forward is the only place that needs the escape hatch.
+    return Field(**field_kwargs, json_schema_extra=cli_meta)  # type: ignore[call-overload]
+
+
+def arg(
+    *,
+    optional: bool = False,
+    metavar: str | None = None,
+    **field_kwargs: Unpack[FieldKwargs],
+) -> Any:
+    """Declare a field as a *positional* command-line argument.
+
+    A thin wrapper over :func:`pydantic.Field`: pass any ``Field`` argument
+    (``default``, ``description``, validation constraints such as ``ge`` or
+    ``max_length``, ...) as a keyword and it is forwarded unchanged and fully
+    type-checked (see :class:`FieldKwargs`).  A field with no ``default`` is a required
+    positional; give it a ``default`` (or ``optional=True``) to make it omittable.
+
+    Args:
+        optional: Allow the value to be omitted (argparse ``nargs="?"``).
+        metavar: Override the value placeholder shown in ``--help``.
+        **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
+
+    Returns:
+        A ``pydantic.Field`` marked as positional.
+    """
+    cli_meta: dict[str, Any] = {"positional": True}
+    if optional:
+        cli_meta["optional"] = True
+    if metavar is not None:
+        cli_meta["metavar"] = metavar
+    return _make_field(cli_meta, field_kwargs)
+
+
+def option(
+    *,
+    abrv: str | None = None,
+    count: bool = False,
+    optional: bool = False,
+    metavar: str | None = None,
+    **field_kwargs: Unpack[FieldKwargs],
+) -> Any:
+    """Declare a field as a command-line *option* (``--name``).
+
+    A thin wrapper over :func:`pydantic.Field`: pass any ``Field`` argument as a keyword
+    and it is forwarded unchanged and fully type-checked (see :class:`FieldKwargs`).  A
+    field with no ``default`` becomes a *required* option.
+
+    Args:
+        abrv: A single short-option abbreviation, e.g. ``"v"`` exposes ``-v``.
+        count: Treat the option as a repeat-counter (``-vvv`` -> ``3``); ``int`` only.
+        optional: Allow ``--opt`` to be given with no value, yielding ``None`` (declare
+            the field as ``T | None``).
+        metavar: Override the value placeholder shown in ``--help``.
+        **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
+
+    Returns:
+        A ``pydantic.Field`` marked as an option.
+    """
+    cli_meta: dict[str, Any] = {"positional": False}
+    if abrv is not None:
+        cli_meta["abrv"] = abrv
+    if count:
+        cli_meta["count"] = True
+    if optional:
+        cli_meta["optional"] = True
+    if metavar is not None:
+        cli_meta["metavar"] = metavar
+    return _make_field(cli_meta, field_kwargs)
 
 
 #####################################################################################

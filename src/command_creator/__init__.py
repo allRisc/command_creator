@@ -18,20 +18,18 @@
 """Create command-line tools from :mod:`pydantic` models.
 
 Define a command by subclassing :class:`~command_creator.command.BaseCmdModel`, declare
-each argument as a pydantic field (using ``pydantic.Field`` for defaults/help and
-:class:`~command_creator.command.ArgMeta` metadata for CLI-only extras), and nest
-sub-commands to any depth via the ``sub_commands`` class attribute::
+each argument with :func:`~command_creator.command.arg` (positional) or
+:func:`~command_creator.command.option`, and nest sub-commands to any depth via the
+``sub_commands`` class attribute::
 
-    from typing import ClassVar
-
-    from command_creator import BaseCmdModel, ArgMeta, Field
+    from command_creator import BaseCmdModel, arg, option
 
 
     class Greet(BaseCmdModel):
         \"\"\"Greet someone.\"\"\"
 
-        name: str = Field(description="who to greet")
-        loud: bool = Field(False, description="shout", json_schema_extra=ArgMeta(abrv="l"))
+        name: str = arg(description="who to greet")
+        loud: bool = option(default=False, abrv="l", description="shout")
 
         def run(self) -> None:
             message = f"Hello, {self.name}!"
@@ -40,6 +38,10 @@ sub-commands to any depth via the ``sub_commands`` class attribute::
 
     if __name__ == "__main__":
         Greet.run_and_exit()
+
+``arg`` and ``option`` are thin wrappers over ``pydantic.Field`` and forward every field
+argument.  If you build a ``Field`` yourself, :func:`~command_creator.command.arg_meta`
+produces the equivalent CLI metadata for its ``json_schema_extra``.
 """
 
 from __future__ import annotations
@@ -47,13 +49,15 @@ from __future__ import annotations
 from pydantic import Field
 
 from ._info import __author__, __version__
-from .command import ArgMeta, BaseCmdModel, InvalidCommandError
+from .command import BaseCmdModel, InvalidCommandError, arg, arg_meta, option
 
 __all__ = [
-    "ArgMeta",
     "BaseCmdModel",
     "Field",
     "InvalidCommandError",
     "__author__",
     "__version__",
+    "arg",
+    "arg_meta",
+    "option",
 ]

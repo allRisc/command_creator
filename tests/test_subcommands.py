@@ -21,7 +21,7 @@ from typing import ClassVar
 
 import pytest
 
-from command_creator import ArgMeta, BaseCmdModel, Field, InvalidCommandError
+from command_creator import BaseCmdModel, InvalidCommandError, arg, option
 
 # Records the order in which run() methods fire, for the dispatch tests.
 RUN_LOG: list[str] = []
@@ -31,8 +31,8 @@ class Deep(BaseCmdModel):
     """A third-level (leaf) command."""
 
     cmd_aliases: ClassVar = ("dd",)
-    target: str = Field(description="what to go deep on")  # positional (leaf, no sub-commands)
-    factor: int = Field(1, json_schema_extra=ArgMeta(abrv="f"))
+    target: str = arg(description="what to go deep on")  # positional (leaf, no sub-commands)
+    factor: int = option(default=1, abrv="f")
 
     def run(self) -> None:
         RUN_LOG.append(f"deep:{self.target}:{self.factor}")
@@ -44,7 +44,7 @@ class Add(BaseCmdModel):
     # An intermediate command that groups sub-commands uses options, not positionals.
     cmd_aliases: ClassVar = ("a", "insert")
     sub_commands: ClassVar = (Deep,)
-    label: str = Field("none", json_schema_extra=ArgMeta(abrv="l"))
+    label: str = option(default="none", abrv="l")
 
     def run(self) -> None:
         RUN_LOG.append(f"add:{self.label}")
@@ -55,7 +55,7 @@ class Remove(BaseCmdModel):
 
     cmd_name: ClassVar = "remove"
     cmd_aliases: ClassVar = ("rm", "del")
-    name: str = Field(description="item name")  # positional (leaf, no sub-commands)
+    name: str = arg(description="item name")  # positional (leaf, no sub-commands)
 
     def run(self) -> None:
         RUN_LOG.append(f"remove:{self.name}")
@@ -65,7 +65,7 @@ class Root(BaseCmdModel):
     """Top-level command."""
 
     sub_commands: ClassVar = (Add, Remove)
-    verbose: bool = Field(False, json_schema_extra=ArgMeta(abrv="v"))
+    verbose: bool = option(default=False, abrv="v")
 
     def run(self) -> None:
         RUN_LOG.append("root")
@@ -176,7 +176,7 @@ def test_positional_with_subcommands_is_rejected() -> None:
         pass
 
     class Parent(BaseCmdModel):
-        target: str = Field(description="a positional")  # required -> positional
+        target: str = arg(description="a positional")
         sub_commands: ClassVar = (Child,)
 
     with pytest.raises(InvalidCommandError, match="positional"):

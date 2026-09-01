@@ -160,6 +160,7 @@ dependency_groups = ["docs"]
 allowlist_externals = ["rm"]
 commands_pre = [
     ["rm", "-rf", "docs/_build"],
+    ["rm", "-rf", "docs/source/_autosummary"],
 ]
 commands = [
     ["sphinx-build", "-E", "-W", "-b", "dirhtml", "docs/source", "docs/_build/dirhtml"],
