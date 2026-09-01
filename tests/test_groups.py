@@ -26,7 +26,7 @@ from typing import ClassVar
 
 import pytest
 
-from command_creator import BaseCmdModel, InvalidCommandError, arg, group, option
+from command_creator import BaseCmdModel, CmdConfig, InvalidCommandError, arg, group, option
 
 
 def _group_title_of(parser, dest):
@@ -93,7 +93,7 @@ def test_group_string_on_positional() -> None:
 class ConnOpts(BaseCmdModel):
     """Connection options."""
 
-    cmd_name: ClassVar = "Connection"
+    model_config = CmdConfig(cmd_name="Connection")
     host: str = option(default="localhost", description="server host")
     port: int = option(default=5432, description="server port")
 
@@ -285,7 +285,7 @@ def test_group_string_titles_a_nested_group_field() -> None:
     # A group= string on a nested-model field titles the group (below an explicit
     # group(title=...) but above the child's cmd_name).
     class Conn(BaseCmdModel):
-        cmd_name: ClassVar = "Connection"
+        model_config = CmdConfig(cmd_name="Connection")
         host: str = option(default="localhost")
 
     class Cmd(BaseCmdModel):
@@ -312,7 +312,7 @@ def test_duplicate_collision_error_names_declaring_owner() -> None:
 def test_group_and_string_group_titles_merge() -> None:
     # A nested group and a group= string sharing a title land in one display group.
     class Net(BaseCmdModel):
-        cmd_name: ClassVar = "Network"
+        model_config = CmdConfig(cmd_name="Network")
         host: str = option(default="h")
 
     class Cmd(BaseCmdModel):

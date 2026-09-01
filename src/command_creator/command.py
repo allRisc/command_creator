@@ -31,9 +31,9 @@ constructs:
   you build a raw ``pydantic.Field`` yourself, :func:`arg_meta` produces the same
   mapping.
 
-Sub-commands are declared with class-owned identity: every command class knows its
-own :attr:`~BaseCmdModel.cmd_name` (defaulting to the lower-cased class name) and
-:attr:`~BaseCmdModel.cmd_aliases`, and a parent lists its children in
+Sub-commands are declared with class-owned identity: every command class knows its own
+``cmd_name`` (defaulting to the lower-cased class name) and ``cmd_aliases``, both set in
+``model_config`` via :class:`CmdConfig`, and a parent lists its children in
 :attr:`~BaseCmdModel.sub_commands`.  Because every sub-command is itself a
 ``BaseCmdModel`` this nests to an arbitrary depth.
 """
@@ -71,6 +71,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "BaseCmdModel",
+    "CmdConfig",
     "InvalidCommandError",
     "arg",
     "arg_meta",
@@ -87,14 +88,27 @@ _RESERVED_NAMES = frozenset(
         "command_chain",
         "sub_command",
         "sub_commands",
-        "cmd_name",
-        "cmd_aliases",
         "get_cmd_name",
         "get_cmd_aliases",
         "get_parser",
         "parse",
     }
 )
+
+
+class CmdConfig(ConfigDict, total=False):
+    """A pydantic :class:`~pydantic.ConfigDict` extended with command-identity keys.
+
+    Set these in a command's ``model_config`` to control how the (sub)command is named
+    and invoked, e.g. ``model_config = CmdConfig(cmd_name="add", cmd_aliases=("a",))``.
+    Every standard :class:`~pydantic.ConfigDict` key remains available, and pydantic
+    merges ``model_config`` down the class hierarchy as usual.
+    """
+
+    cmd_name: str | None
+    """Explicit name for the (sub)command; defaults to the lower-cased class name."""
+    cmd_aliases: Sequence[str]
+    """Alternate names the (sub)command may be invoked by."""
 
 
 #####################################################################################
@@ -329,7 +343,7 @@ def group(
 
     Args:
         title: The ``--help`` group title.  When omitted the title falls back to the
-            child class's :attr:`~BaseCmdModel.cmd_name` (if set), then its class name.
+            child class's ``cmd_name`` (if set via :class:`CmdConfig`), then its class name.
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -435,13 +449,11 @@ class BaseCmdModel(BaseModel):
 
     # Arguments are always populated by field name (never by a pydantic alias), so a
     # field that declares an ``alias`` still constructs correctly from parsed values.
-    model_config = ConfigDict(populate_by_name=True)
+    # ``cmd_name``/``cmd_aliases`` live here too (see :class:`CmdConfig`); subclasses set
+    # them via ``model_config = CmdConfig(...)`` and pydantic merges down the hierarchy.
+    model_config = CmdConfig(populate_by_name=True)
 
     # --- Class-level command identity (not pydantic fields) --------------------------
-    cmd_name: ClassVar[str | None] = None
-    """Explicit name for the (sub)command; defaults to the lower-cased class name."""
-    cmd_aliases: ClassVar[Sequence[str]] = ()
-    """Alternate names the (sub)command may be invoked by."""
     sub_commands: ClassVar[Sequence[type[BaseCmdModel]]] = ()
     """Child command classes.  Each may declare its own ``sub_commands`` (any depth)."""
 
@@ -453,12 +465,13 @@ class BaseCmdModel(BaseModel):
     @classmethod
     def get_cmd_name(cls) -> str:
         """Return the command name, defaulting to the lower-cased class name."""
-        return cls.cmd_name if cls.cmd_name is not None else cls.__name__.lower()
+        name = cls.model_config.get("cmd_name")
+        return name if name is not None else cls.__name__.lower()
 
     @classmethod
     def get_cmd_aliases(cls) -> tuple[str, ...]:
         """Return the command's aliases as a tuple."""
-        return tuple(cls.cmd_aliases)
+        return tuple(cls.model_config.get("cmd_aliases") or ())
 
     # --- User hooks ------------------------------------------------------------------
     def run(self) -> None:
@@ -927,8 +940,8 @@ def _group_title(child: type[BaseCmdModel], meta: dict[str, Any]) -> str:
     """Resolve a nested group's ``--help`` title.
 
     Precedence: an explicit ``group(title=...)`` override, then a ``group=`` string set
-    via ``arg``/``option`` on the same field, then the child's ``cmd_name`` class
-    attribute (verbatim), then the child class name.
+    via ``arg``/``option`` on the same field, then the child's ``cmd_name`` config value
+    (verbatim, see :class:`CmdConfig`), then the child class name.
     """
     override = meta.get("group_title")
     if override is not None:
@@ -936,8 +949,9 @@ def _group_title(child: type[BaseCmdModel], meta: dict[str, Any]) -> str:
     string_title = meta.get("group")
     if string_title is not None:
         return str(string_title)
-    if child.cmd_name is not None:
-        return str(child.cmd_name)
+    cmd_name = child.model_config.get("cmd_name")
+    if cmd_name is not None:
+        return str(cmd_name)
     return child.__name__
 
 

@@ -28,7 +28,7 @@ Try it out::
 from enum import StrEnum
 from typing import ClassVar
 
-from command_creator import BaseCmdModel, arg, group, option
+from command_creator import BaseCmdModel, CmdConfig, arg, group, option
 
 
 class Casing(StrEnum):
@@ -43,7 +43,7 @@ class Greet(BaseCmdModel):
     """Greet someone by name."""
 
     # Aliases let the sub-command be invoked as `greet`, `hi` or `hello`.
-    cmd_aliases: ClassVar = ("hi", "hello")
+    model_config = CmdConfig(cmd_aliases=("hi", "hello"))
 
     # arg() -> a positional argument (no default -> required).
     name: str = arg(description="who to greet")
@@ -68,7 +68,7 @@ class Greet(BaseCmdModel):
 class Auth(BaseCmdModel):
     """Authentication options for the remote."""
 
-    cmd_name: ClassVar = "Authentication"
+    model_config = CmdConfig(cmd_name="Authentication")
 
     # Flattened onto the parent as `--username` / `--token`, grouped in --help.
     username: str | None = option(default=None, description="user to authenticate as")
@@ -78,7 +78,7 @@ class Auth(BaseCmdModel):
 class RemoteAdd(BaseCmdModel):
     """Add a remote."""
 
-    cmd_name: ClassVar = "add"
+    model_config = CmdConfig(cmd_name="add")
 
     url: str = arg(description="remote URL")
     name: str = option(default="origin", description="local name for the remote")
@@ -97,7 +97,7 @@ class RemoteAdd(BaseCmdModel):
 class Remote(BaseCmdModel):
     """Manage remotes (has its own sub-commands, nested to any depth)."""
 
-    cmd_aliases: ClassVar = ("rmt",)
+    model_config = CmdConfig(cmd_aliases=("rmt",))
     sub_commands: ClassVar = (RemoteAdd,)
 
     def run(self) -> None:

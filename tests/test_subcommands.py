@@ -21,7 +21,7 @@ from typing import ClassVar
 
 import pytest
 
-from command_creator import BaseCmdModel, InvalidCommandError, arg, option
+from command_creator import BaseCmdModel, CmdConfig, InvalidCommandError, arg, option
 
 # Records the order in which run() methods fire, for the dispatch tests.
 RUN_LOG: list[str] = []
@@ -30,7 +30,7 @@ RUN_LOG: list[str] = []
 class Deep(BaseCmdModel):
     """A third-level (leaf) command."""
 
-    cmd_aliases: ClassVar = ("dd",)
+    model_config = CmdConfig(cmd_aliases=("dd",))
     target: str = arg(description="what to go deep on")  # positional (leaf, no sub-commands)
     factor: int = option(default=1, abrv="f")
 
@@ -42,7 +42,7 @@ class Add(BaseCmdModel):
     """Add an item."""
 
     # An intermediate command that groups sub-commands uses options, not positionals.
-    cmd_aliases: ClassVar = ("a", "insert")
+    model_config = CmdConfig(cmd_aliases=("a", "insert"))
     sub_commands: ClassVar = (Deep,)
     label: str = option(default="none", abrv="l")
 
@@ -53,8 +53,7 @@ class Add(BaseCmdModel):
 class Remove(BaseCmdModel):
     """Remove an item."""
 
-    cmd_name: ClassVar = "remove"
-    cmd_aliases: ClassVar = ("rm", "del")
+    model_config = CmdConfig(cmd_name="remove", cmd_aliases=("rm", "del"))
     name: str = arg(description="item name")  # positional (leaf, no sub-commands)
 
     def run(self) -> None:
@@ -147,10 +146,10 @@ def test_parent_args_isolated_from_child_args() -> None:
 
 def test_alias_collision_is_rejected() -> None:
     class A(BaseCmdModel):
-        cmd_name: ClassVar = "dup"
+        model_config = CmdConfig(cmd_name="dup")
 
     class B(BaseCmdModel):
-        cmd_aliases: ClassVar = ("dup",)
+        model_config = CmdConfig(cmd_aliases=("dup",))
 
     class Parent(BaseCmdModel):
         sub_commands: ClassVar = (A, B)
@@ -161,8 +160,7 @@ def test_alias_collision_is_rejected() -> None:
 
 def test_self_duplicate_alias_is_rejected() -> None:
     class SelfDup(BaseCmdModel):
-        cmd_name: ClassVar = "x"
-        cmd_aliases: ClassVar = ("x",)
+        model_config = CmdConfig(cmd_name="x", cmd_aliases=("x",))
 
     class Parent(BaseCmdModel):
         sub_commands: ClassVar = (SelfDup,)
