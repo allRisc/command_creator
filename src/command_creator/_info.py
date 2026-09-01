@@ -18,6 +18,11 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 
-__version__: str = "2.3.1"
+try:
+    __version__: str = version("command_creator")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 __author__: str = "Benjamin Davis"

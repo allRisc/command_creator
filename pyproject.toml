@@ -22,7 +22,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "command_creator"
-dynamic = ["version"]
+version = "3.0.0a1"
 description = "A package to simplify the creation of Python Command-Line tools"
 readme = "README.md"
 authors = [{name = "Benjamin Davis", email = "allrisc.dev@gmail.com"}]
@@ -38,17 +38,13 @@ classifiers = [
 ]
 keywords = ["command", "tool"]
 requires-python = ">=3.14"
-dependencies = []
-
-[project.optional-dependencies]
-completion = ["argcomplete"]
+dependencies = [
+    "pydantic>=2.13.5,<3.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://command-creator.readthedocs.io/en/latest/index.html"
-
-[tool.hatch.version]
-path = "src/command_creator/_info.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/command_creator"]
@@ -76,6 +72,16 @@ typing = [
 
 # Tool Configurations
 ####################################################################################################
+
+[tool.autopep8]
+max-line-length = 100
+
+[tool.pyright]
+pythonVersion = "3.12"
+include = ["src"]
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
 
 [tool.ruff]
 line-length = 100
