@@ -77,7 +77,7 @@ typing = [
 max-line-length = 100
 
 [tool.pyright]
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 include = ["src"]
 typeCheckingMode = "basic"
 venvPath = "."

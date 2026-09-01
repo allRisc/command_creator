@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `arg_meta()` helper that produces the CLI metadata for a hand-built `pydantic.Field`
   (via its `json_schema_extra`).
 - `InvalidCommandError` is exported from the package root.
+- `suggest_on_error` and `color` keyword arguments on `get_parser()`, `parse()` and
+  `run_and_exit()`, forwarded to Python 3.14's `argparse.ArgumentParser` (closest-match
+  suggestions on unrecognised arguments, and colourised usage/`--help`). Both propagate to
+  every sub-command parser.
 
 ### Removed
 

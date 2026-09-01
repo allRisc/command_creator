@@ -574,17 +574,42 @@ class BaseCmdModel(BaseModel):
     # Parser construction
     #####################################################################################
     @classmethod
-    def get_parser(cls, prog: str | None = None) -> argparse.ArgumentParser:
+    def get_parser(
+        cls,
+        prog: str | None = None,
+        *,
+        suggest_on_error: bool = False,
+        color: bool = True,
+    ) -> argparse.ArgumentParser:
         """Build the :class:`argparse.ArgumentParser` for this command and its children.
 
         Args:
             prog: The program name shown in usage.  Defaults to :meth:`get_cmd_name`.
+            suggest_on_error: Forwarded to :class:`argparse.ArgumentParser`; when ``True``
+                argparse suggests the closest valid choice/option on an unrecognised
+                argument (Python 3.14+).  Propagated to every sub-command parser.
+            color: Forwarded to :class:`argparse.ArgumentParser`; when ``True`` (the
+                argparse default) usage and ``--help`` output is colourised, honouring the
+                ``NO_COLOR`` / ``FORCE_COLOR`` environment variables and only emitting
+                colour to a TTY (Python 3.14+).  Propagated to every sub-command parser.
 
         Returns:
             The fully-populated argument parser.
         """
-        parser = argparse.ArgumentParser(prog=prog or cls.get_cmd_name(), description=cls.__doc__)
-        cls._build(parser, prefix="", depth=0, counter=itertools.count())
+        parser = argparse.ArgumentParser(
+            prog=prog or cls.get_cmd_name(),
+            description=cls.__doc__,
+            suggest_on_error=suggest_on_error,
+            color=color,
+        )
+        cls._build(
+            parser,
+            prefix="",
+            depth=0,
+            counter=itertools.count(),
+            suggest_on_error=suggest_on_error,
+            color=color,
+        )
         return parser
 
     @classmethod
@@ -594,6 +619,9 @@ class BaseCmdModel(BaseModel):
         prefix: str,
         depth: int,
         counter: itertools.count,
+        *,
+        suggest_on_error: bool,
+        color: bool,
     ) -> None:
         """Recursively add this command's arguments and sub-commands to *parser*.
 
@@ -603,6 +631,8 @@ class BaseCmdModel(BaseModel):
                 same-named fields at other depths.
             depth: The current nesting depth (0 at the root).
             counter: Shared counter used to mint unique per-command prefixes.
+            suggest_on_error: Forwarded to each sub-command parser (see :meth:`get_parser`).
+            color: Forwarded to each sub-command parser (see :meth:`get_parser`).
         """
         has_positional = cls._add_arguments(parser, prefix)
 
@@ -640,16 +670,27 @@ class BaseCmdModel(BaseModel):
                 seen[name] = sub
 
             sub_prefix = f"_c{next(counter)}_"
+            # argparse copies ``color`` from the parent onto sub-parsers automatically but
+            # not ``suggest_on_error``; pass both so every level behaves identically.
             sub_parser = sub_parsers.add_parser(
                 sub.get_cmd_name(),
                 aliases=list(sub.get_cmd_aliases()),
                 help=_first_line(sub.__doc__),
                 description=sub.__doc__,
+                suggest_on_error=suggest_on_error,
+                color=color,
             )
             # Record which class (and its dest prefix) was chosen at this depth so the
             # exact invoked chain can be rebuilt regardless of which alias was typed.
             sub_parser.set_defaults(**{f"_cc_cls{depth}": sub, f"_cc_pfx{depth}": sub_prefix})
-            sub._build(sub_parser, prefix=sub_prefix, depth=depth + 1, counter=counter)
+            sub._build(
+                sub_parser,
+                prefix=sub_prefix,
+                depth=depth + 1,
+                counter=counter,
+                suggest_on_error=suggest_on_error,
+                color=color,
+            )
 
     @classmethod
     def _iter_cli_fields(
@@ -910,17 +951,27 @@ class BaseCmdModel(BaseModel):
     # Parsing
     #####################################################################################
     @classmethod
-    def parse(cls, argv: Sequence[str] | None = None) -> Self:
+    def parse(
+        cls,
+        argv: Sequence[str] | None = None,
+        *,
+        suggest_on_error: bool = False,
+        color: bool = True,
+    ) -> Self:
         """Parse command-line arguments into a fully-populated command instance.
 
         Args:
             argv: Arguments to parse.  Defaults to ``sys.argv[1:]`` (argparse's default).
+            suggest_on_error: Forwarded to :meth:`get_parser` (Python 3.14+).
+            color: Forwarded to :meth:`get_parser` (Python 3.14+).
 
         Returns:
             The root command instance, with any selected sub-commands linked through
             :attr:`sub_command`.
         """
-        namespace = cls.get_parser().parse_args(argv)
+        namespace = cls.get_parser(
+            suggest_on_error=suggest_on_error, color=color
+        ).parse_args(argv)
 
         root = cls._from_namespace(namespace)
         parent: BaseCmdModel = root
@@ -968,16 +1019,24 @@ class BaseCmdModel(BaseModel):
     # Execution
     #####################################################################################
     @classmethod
-    def run_and_exit(cls, argv: Sequence[str] | None = None) -> NoReturn:
+    def run_and_exit(
+        cls,
+        argv: Sequence[str] | None = None,
+        *,
+        suggest_on_error: bool = False,
+        color: bool = True,
+    ) -> NoReturn:
         """Parse arguments, run the full invoked command path, then exit ``0``.
 
         Args:
             argv: Arguments to parse.  Defaults to ``sys.argv[1:]``.
+            suggest_on_error: Forwarded to :meth:`get_parser` (Python 3.14+).
+            color: Forwarded to :meth:`get_parser` (Python 3.14+).
 
         An uncaught exception raised by :meth:`run` propagates (yielding a non-zero
         exit via the interpreter); raise ``SystemExit`` for an explicit exit code.
         """
-        cls.parse(argv).run_path()
+        cls.parse(argv, suggest_on_error=suggest_on_error, color=color).run_path()
         sys.exit(0)
 
 
