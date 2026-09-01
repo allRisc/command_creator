@@ -1,5 +1,6 @@
 # Command Creator
 
+[![Tests Status](https://github.com/allRisc/command_creator/actions/workflows/test.yml/badge.svg)](https://github.com/allRisc/command_creator/actions/workflows/test.yml)
 [![PyPI version](https://badge.fury.io/py/command_creator.svg)](https://badge.fury.io/py/command_creator)
 [![Documentation Status](https://readthedocs.org/projects/command-creator/badge/?version=latest)](https://command-creator.readthedocs.io/en/latest/?badge=latest)
 [![License](https://img.shields.io/pypi/l/command_creator.svg)](https://pypi.org/project/command_creator/)
