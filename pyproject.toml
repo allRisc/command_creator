@@ -46,6 +46,11 @@ dependencies = [
 Homepage = "https://github.com/allRisc/command_creator"
 Documentation = "https://command-creator.readthedocs.io/en/latest/index.html"
 
+[project.optional-dependencies]
+shtab = [
+    "shtab>=1.12.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/command_creator"]
 

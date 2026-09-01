@@ -28,7 +28,7 @@ This package is particularly useful for developers who want to quickly set up CL
 - [Argument Groups](#argument-groups)
 - [Sub-commands](#sub-commands)
 - [Using with Sphinx-Autoprogram](#using-with-sphinx-autoprogram)
-- [BASH and ZSH Auto-complete](#bash-and-zsh-auto-complete)
+- [Shell Completion](#shell-completion)
 
 ## Simple Usage
 
@@ -168,15 +168,33 @@ It is mutually exclusive with `positional`, meaning that an argument cannot be b
 
 ### completer
 
-The `completer` argument takes an object which can be used by argcomplete to provide auto-completion for the argument.
-This is useful for options that can take a limited set of values, such as `--color` which might take values like `red`, `green`, or `blue`.
-The completer should be a callable that takes no arguments and returns a list of strings.
-For example, if you have a list of colors, you could use the following:
+The `completer` argument attaches a shell-completion hint to an argument's value, consumed
+by [`shtab`](https://github.com/iterative/shtab) when it generates a completion script (see
+[Shell Completion](#shell-completion)). It accepts:
+
+- an `shtab` preset - `shtab.FILE` or `shtab.DIRECTORY`;
+- the string shorthands `"file"`, `"dir"` / `"directory"` (resolved to those presets);
+- a `{shell: snippet}` mapping for a custom completer per shell.
 
 ```python
-def color_completer():
-    return ["red", "green", "blue"]
+import shtab
+from command_creator import BaseCmdModel, arg, option
+
+
+class Convert(BaseCmdModel):
+    """Convert a file."""
+
+    src: str = arg(description="input file", completer="file")           # shorthand
+    out_dir: str = option(default=".", completer=shtab.DIRECTORY)         # shtab preset
+    fmt: str = option(                                                    # custom snippet
+        default="png", completer={"bash": "compgen -W 'png jpg webp'", "zsh": "(png jpg webp)"}
+    )
+
+    def run(self) -> None: ...
 ```
+
+`completer` requires the optional `shtab` dependency; without it the hint is stored but
+never applied (it only matters at script-generation time, which itself needs `shtab`).
 
 ## Argument Groups
 
@@ -278,16 +296,56 @@ The group title defaults to the child's `cmd_name` (if set), then the child clas
     .. autoprogram:: pkg_name.module:CommandClass.create_parser(True)
 ```
 
-## BASH and ZSH Auto-complete
+## Shell Completion
 
-Bash and ZSH Auto-complete can be enabled by adding the following line to the top of your script.
-This will allow the command to be auto-completed in the shell.
-Additionally, the `argcomplete` package must be installed.
+Command Creator can generate completion scripts for `bash`, `zsh`, `tcsh`, `fish` and
+`powershell` via the optional [`shtab`](https://github.com/iterative/shtab) dependency:
+
+```bash
+pip install command_creator[shtab]
+```
+
+Set `completion=True` in your **root** command's `model_config` (see `CmdConfig`) and the
+tool automatically grows a `completion <shell>` sub-command:
 
 ```python
-    # PYTHON_ARGCOMPLETE_OK
+from command_creator import BaseCmdModel, CmdConfig, arg, option
 
-    @dataclass
-    class MyCommand(Command):
-        # Your command definition here
+
+class Greet(BaseCmdModel):
+    """Greet someone."""
+
+    name: str = arg(description="who to greet")
+
+    def run(self) -> None:
+        print(f"Hello, {self.name}!")
+
+
+class Tool(BaseCmdModel):
+    """Example tool."""
+
+    # completion=True -> a `completion <shell>` verb; completion_name renames it.
+    model_config = CmdConfig(sub_commands=(Greet,), completion=True)
+
+    def run(self) -> None: ...
+
+
+if __name__ == "__main__":
+    Tool.run_and_exit()
 ```
+
+Users then source the script for their shell (once, or from their shell rc file):
+
+```bash
+eval "$(mytool completion bash)"        # bash
+eval "$(mytool completion zsh)"         # zsh
+mytool completion fish | source         # fish
+```
+
+Notes:
+
+- The script is emitted at parse time, so a command's `run()` output can never pollute it.
+- Rename the verb with `CmdConfig(completion=True, completion_name="complete")`.
+- Enabling `completion=True` without `shtab` installed raises `InvalidCommandError`.
+- Per-argument completers (file paths, directories, custom snippets) are configured with
+  the [`completer`](#completer) keyword on `arg()` / `option()`.

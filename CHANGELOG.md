@@ -32,6 +32,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `run_and_exit()`, forwarded to Python 3.14's `argparse.ArgumentParser` (closest-match
   suggestions on unrecognised arguments, and colourised usage/`--help`). Both propagate to
   every sub-command parser.
+- Shell completion via the optional [`shtab`](https://github.com/iterative/shtab)
+  dependency (`pip install command_creator[shtab]`). Set `completion=True` in a root
+  command's `model_config` (see `CmdConfig`) to auto-add a `completion <shell>`
+  sub-command that prints a completion script for `bash`, `zsh`, `tcsh`, `fish` or
+  `powershell` (e.g. `eval "$(mytool completion bash)"`); the verb name is configurable via
+  `completion_name`. The script is emitted at parse time, so it is never polluted by a
+  command's `run()` output. Attach a per-argument completer with the new `completer=`
+  keyword on `arg()` / `option()` / `arg_meta()` - pass an `shtab` preset
+  (`shtab.FILE` / `shtab.DIRECTORY`), the shorthands `"file"` / `"dir"`, or a
+  `{shell: snippet}` mapping. Enabling `completion=True` without `shtab` installed raises
+  `InvalidCommandError`; a bare `completer=` is inert without `shtab`.
 
 ### Removed
 

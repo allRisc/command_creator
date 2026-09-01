@@ -79,6 +79,18 @@ __all__ = [
     "option",
 ]
 
+# A per-argument shell-completion hint.  Either a ``{shell: completer}`` mapping (an
+# ``shtab`` preset such as ``shtab.FILE``/``shtab.DIRECTORY``, or your own snippet per
+# shell), or one of the string shorthands ``"file"``/``"dir"``/``"directory"`` which
+# resolve to the matching ``shtab`` preset.  Completers are consumed by ``shtab`` when it
+# generates a completion script; without ``shtab`` installed they are inert (see
+# :func:`option`).
+CompleterSpec = dict[str, str] | str
+
+# String shorthands accepted by ``completer=`` (resolved to ``shtab`` presets); validated
+# case-insensitively regardless of whether ``shtab`` is installed.
+_COMPLETER_SHORTHANDS = frozenset({"file", "dir", "directory"})
+
 # Field names that would collide with the command API and break dispatch/identity.
 _RESERVED_NAMES = frozenset(
     {
@@ -112,6 +124,13 @@ class CmdConfig(ConfigDict, total=False):
     """Alternate names the (sub)command may be invoked by."""
     sub_commands: Sequence[type[BaseCmdModel]]
     """Child command classes.  Each may declare its own ``sub_commands`` (any depth)."""
+    completion: bool
+    """When ``True`` add a ``completion <shell>`` sub-command that prints a shell
+    completion script (via :mod:`shtab`).  Honoured on the *root* command only, and
+    requires the optional ``shtab`` dependency (``pip install command_creator[shtab]``)
+    -- building the parser without it raises :class:`InvalidCommandError`."""
+    completion_name: str
+    """Verb name for the auto-added completion sub-command (default ``"completion"``)."""
 
 
 #####################################################################################
@@ -181,6 +200,7 @@ def arg_meta(
     metavar: str | None = None,
     group: str | None = None,
     group_title: str | None = None,
+    completer: CompleterSpec | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build the command-line metadata mapping for a *raw* ``pydantic.Field``.
@@ -211,6 +231,8 @@ def arg_meta(
         group_title: Title override for a *nested-model* group field, matching
             :func:`group`'s ``title`` (used when the field's type is a
             :class:`BaseCmdModel` subclass built as a raw ``Field``).
+        completer: Shell-completion hint for the argument's value, consumed by
+            :mod:`shtab` (see :data:`CompleterSpec` and :func:`option`).
         **extra: Any additional metadata keys, stored verbatim.
 
     Returns:
@@ -224,6 +246,7 @@ def arg_meta(
         "metavar": metavar,
         "group": group,
         "group_title": group_title,
+        "completer": completer,
     }
     data: dict[str, Any] = {key: value for key, value in recognised.items() if value is not None}
     data.update(extra)  # extra keys pass through verbatim, including explicit None
@@ -246,6 +269,7 @@ def arg(
     optional: bool = False,
     metavar: str | None = None,
     group: str | None = None,
+    completer: CompleterSpec | None = None,
     **field_kwargs: Unpack[FieldKwargs],
 ) -> Any:
     """Declare a field as a *positional* command-line argument.
@@ -261,6 +285,8 @@ def arg(
         metavar: Override the value placeholder shown in ``--help``.
         group: Title of the ``--help`` argument group this argument is listed under
             (see :func:`option`).
+        completer: Shell-completion hint for the value (see :func:`option` and
+            :data:`CompleterSpec`).
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -273,6 +299,8 @@ def arg(
         cli_meta["metavar"] = metavar
     if group is not None:
         cli_meta["group"] = group
+    if completer is not None:
+        cli_meta["completer"] = completer
     return _make_field(cli_meta, field_kwargs)
 
 
@@ -283,6 +311,7 @@ def option(
     optional: bool = False,
     metavar: str | None = None,
     group: str | None = None,
+    completer: CompleterSpec | None = None,
     **field_kwargs: Unpack[FieldKwargs],
 ) -> Any:
     """Declare a field as a command-line *option* (``--name``).
@@ -303,6 +332,12 @@ def option(
             together.  (A field nested *inside* a group always follows that group's
             title.)  Grouping is display-only: it does not change parsing, dests or the
             field name.
+        completer: Shell-completion hint for the option's value, consumed by :mod:`shtab`
+            when it generates a completion script (see :data:`CompleterSpec`).  Pass an
+            ``shtab`` preset (``shtab.FILE`` / ``shtab.DIRECTORY``), the shorthands
+            ``"file"`` / ``"dir"``, or a ``{shell: snippet}`` mapping.  Requires the
+            optional ``shtab`` dependency; without it the hint is stored but never applied
+            (it only matters at script-generation time, which itself needs ``shtab``).
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -319,6 +354,8 @@ def option(
         cli_meta["metavar"] = metavar
     if group is not None:
         cli_meta["group"] = group
+    if completer is not None:
+        cli_meta["completer"] = completer
     return _make_field(cli_meta, field_kwargs)
 
 
@@ -483,6 +520,16 @@ class BaseCmdModel(BaseModel):
         """
         return tuple(cls.model_config.get("sub_commands") or ())
 
+    @classmethod
+    def get_completion_enabled(cls) -> bool:
+        """Return whether the completion sub-command is enabled (see :class:`CmdConfig`)."""
+        return bool(cls.model_config.get("completion", False))
+
+    @classmethod
+    def get_completion_name(cls) -> str:
+        """Return the completion sub-command's verb name (defaults to ``"completion"``)."""
+        return cls.model_config.get("completion_name") or "completion"
+
     # --- Sub-command registration ----------------------------------------------------
     @classmethod
     def add_sub_command(cls, command: type[BaseCmdModel]) -> type[BaseCmdModel]:
@@ -622,6 +669,7 @@ class BaseCmdModel(BaseModel):
         *,
         suggest_on_error: bool,
         color: bool,
+        completion_active: bool = False,
     ) -> None:
         """Recursively add this command's arguments and sub-commands to *parser*.
 
@@ -633,18 +681,31 @@ class BaseCmdModel(BaseModel):
             counter: Shared counter used to mint unique per-command prefixes.
             suggest_on_error: Forwarded to each sub-command parser (see :meth:`get_parser`).
             color: Forwarded to each sub-command parser (see :meth:`get_parser`).
+            completion_active: Whether the root enabled the completion verb, propagated to
+                every level.  When set, undocumented sub-commands are given a non-empty
+                ``help``/``description`` fallback so ``shtab``'s zsh/fish generators (which
+                dereference those strings) do not crash on a ``None``.
         """
         has_positional = cls._add_arguments(parser, prefix)
 
         sub_commands = cls.get_sub_commands()
-        if not sub_commands:
+        # The completion verb is a root-only sub-command; import shtab eagerly here (rather
+        # than when it fires) so an opted-in tool fails loudly at build time if the extra
+        # is missing, matching every other misconfiguration in this file.
+        want_completion = depth == 0 and cls.get_completion_enabled()
+        shtab_mod = _import_shtab(cls) if want_completion else None
+        # Once completion is enabled at the root the whole tree is handed to shtab.
+        completion_active = completion_active or want_completion
+
+        if not sub_commands and not want_completion:
             return
 
         if has_positional:
             raise InvalidCommandError(
-                f"{cls.__name__}: a command that declares sub_commands cannot also have "
-                f"positional arguments (a positional would consume the sub-command token); "
-                f"expose them as options via ArgMeta(positional=False)"
+                f"{cls.__name__}: a command that declares sub_commands (or completion=True) "
+                f"cannot also have positional arguments (a positional would consume the "
+                f"sub-command token); expose them as options via option(), or "
+                f"arg_meta(positional=False)"
             )
 
         sub_parsers = parser.add_subparsers(
@@ -670,13 +731,22 @@ class BaseCmdModel(BaseModel):
                 seen[name] = sub
 
             sub_prefix = f"_c{next(counter)}_"
+            # shtab's zsh/fish generators read a sub-parser's help/description; fall back to
+            # the command name for an undocumented sub-command so `completion zsh`/`fish`
+            # cannot crash on a None.  Only when completion is active, to leave the --help of
+            # a plain (completion-less) tool byte-for-byte unchanged.
+            sub_help = _first_line(sub.__doc__)
+            sub_description = sub.__doc__
+            if completion_active:
+                sub_help = sub_help or sub.get_cmd_name()
+                sub_description = sub_description or sub.get_cmd_name()
             # argparse copies ``color`` from the parent onto sub-parsers automatically but
             # not ``suggest_on_error``; pass both so every level behaves identically.
             sub_parser = sub_parsers.add_parser(
                 sub.get_cmd_name(),
                 aliases=list(sub.get_cmd_aliases()),
-                help=_first_line(sub.__doc__),
-                description=sub.__doc__,
+                help=sub_help,
+                description=sub_description,
                 suggest_on_error=suggest_on_error,
                 color=color,
             )
@@ -690,7 +760,73 @@ class BaseCmdModel(BaseModel):
                 counter=counter,
                 suggest_on_error=suggest_on_error,
                 color=color,
+                completion_active=completion_active,
             )
+
+        if want_completion:
+            assert shtab_mod is not None  # set together with want_completion above
+            cls._add_completion_command(
+                parser,
+                sub_parsers,
+                seen,
+                shtab_mod,
+                suggest_on_error=suggest_on_error,
+                color=color,
+            )
+
+    @classmethod
+    def _add_completion_command(
+        cls,
+        root_parser: argparse.ArgumentParser,
+        sub_parsers: Any,
+        seen: dict[str, type[BaseCmdModel]],
+        shtab_mod: Any,
+        *,
+        suggest_on_error: bool,
+        color: bool,
+    ) -> None:
+        """Add the ``completion <shell>`` verb to *sub_parsers* (root command only).
+
+        The verb prints a shell completion script for the whole *root_parser* tree.  It is
+        emitted by a custom argparse ``Action`` that fires during ``parse_args`` and calls
+        ``parser.exit(0)`` -- so, exactly like ``--help``, it never reaches
+        :meth:`_from_namespace` / :meth:`run_path`, guaranteeing that no command's
+        :meth:`run` can pollute the piped script.  Unlike a real sub-command it sets no
+        ``_cc_cls``/``_cc_pfx`` defaults, so :meth:`parse` never treats it as a child.
+
+        Args:
+            root_parser: The fully-populated root parser fed to ``shtab.complete``.
+            sub_parsers: The root's ``_SubParsersAction`` the verb is added to.
+            seen: Sub-command names/aliases already registered (for clash detection).
+            shtab_mod: The imported ``shtab`` module.
+            suggest_on_error: Forwarded to the completion sub-parser.
+            color: Forwarded to the completion sub-parser.
+
+        Raises:
+            InvalidCommandError: If the completion verb name clashes with a sub-command.
+        """
+        name = cls.get_completion_name()
+        if name in seen:
+            raise InvalidCommandError(
+                f"{cls.__name__}: completion sub-command name {name!r} clashes with "
+                f"sub-command {seen[name].__name__}; set completion_name to something else"
+            )
+        comp = sub_parsers.add_parser(
+            name,
+            help="Print a shell completion script (source it in your shell).",
+            description=(
+                "Print a shell completion script for this tool, e.g.\n"
+                f"  eval \"$({root_parser.prog} {name} bash)\""
+            ),
+            suggest_on_error=suggest_on_error,
+            color=color,
+        )
+        comp.add_argument(
+            "shell",
+            choices=list(shtab_mod.SUPPORTED_SHELLS),
+            help="Shell to emit a completion script for.",
+            action=_make_completion_action(root_parser, shtab_mod),
+        )
 
     @classmethod
     def _iter_cli_fields(
@@ -904,17 +1040,25 @@ class BaseCmdModel(BaseModel):
 
         cls._set_metavar(kwargs, name, metavar, positional, is_bool or is_count)
 
+        completer = meta.get("completer")
+        if completer is not None and (is_bool or is_count):
+            raise InvalidCommandError(
+                f"{owner.__name__}.{name}: completer= is meaningless on a flag/count "
+                f"argument that takes no value"
+            )
         try:
             if positional:
                 # For a positional the name *is* the dest; a metavar (set above) keeps
                 # the prefixed dest out of the help text.
-                target.add_argument(dest, **kwargs)
+                action = target.add_argument(dest, **kwargs)
+                _apply_completer(action, owner, name, completer)
                 return True
             option = f"--{name.replace('_', '-')}"
             if required and not is_bool and not is_count:
                 kwargs["required"] = True
             flags = [option, f"-{abrv}"] if abrv else [option]
-            target.add_argument(*flags, dest=dest, **kwargs)
+            action = target.add_argument(*flags, dest=dest, **kwargs)
+            _apply_completer(action, owner, name, completer)
         except argparse.ArgumentError as err:
             raise InvalidCommandError(f"{owner.__name__}.{name}: {err}") from err
         return False
@@ -1089,3 +1233,121 @@ def _first_line(doc: str | None) -> str | None:
         if stripped:
             return stripped
     return None
+
+
+#####################################################################################
+# Shell completion (optional; backed by shtab)
+#####################################################################################
+def _import_shtab(owner: type[BaseCmdModel]) -> Any:
+    """Import and return the optional :mod:`shtab` module.
+
+    Args:
+        owner: The command class that opted into completion (for the error message).
+
+    Returns:
+        The imported ``shtab`` module.
+
+    Raises:
+        InvalidCommandError: If ``shtab`` is not installed.
+    """
+    try:
+        import shtab
+    except ImportError as err:
+        raise InvalidCommandError(
+            f"{owner.__name__}: completion=True requires the optional 'shtab' dependency; "
+            f"install it with `pip install command_creator[shtab]`"
+        ) from err
+    return shtab
+
+
+def _make_completion_action(
+    root_parser: argparse.ArgumentParser, shtab_mod: Any
+) -> type[argparse.Action]:
+    """Build the argparse ``Action`` that prints a completion script and exits.
+
+    The action fires while ``root_parser.parse_args`` consumes the ``shell`` value, writes
+    ``shtab.complete(root_parser, shell)`` to stdout (with a single trailing newline) and
+    calls ``parser.exit(0)``.  Because it exits during parsing, control never returns to
+    :meth:`BaseCmdModel.parse`, so no command's :meth:`run` runs and only the script
+    reaches stdout -- the same guarantee ``--help`` relies on.
+
+    Args:
+        root_parser: The parser whose completion script is generated (captured by closure).
+        shtab_mod: The imported ``shtab`` module.
+
+    Returns:
+        An :class:`argparse.Action` subclass to pass as ``action=`` on the shell argument.
+    """
+
+    class _CompletionAction(argparse.Action):
+        def __call__(
+            self,
+            parser: argparse.ArgumentParser,
+            namespace: argparse.Namespace,
+            values: Any,
+            option_string: str | None = None,
+        ) -> NoReturn:
+            script = shtab_mod.complete(root_parser, values)
+            sys.stdout.write(script if script.endswith("\n") else script + "\n")
+            parser.exit(0)
+
+    return _CompletionAction
+
+
+def _resolve_completer(spec: CompleterSpec) -> dict[str, str] | None:
+    """Resolve a :data:`CompleterSpec` to the ``{shell: completer}`` mapping shtab wants.
+
+    A string shorthand (``"file"`` / ``"dir"`` / ``"directory"``) resolves to the matching
+    :mod:`shtab` preset; a mapping is returned verbatim.  When ``shtab`` is not installed
+    the completer is inert (it only matters at script-generation time, which needs
+    ``shtab``), so this returns ``None`` and the hint is simply not applied.
+
+    Args:
+        spec: The completer hint declared via ``arg``/``option``/``arg_meta``.
+
+    Returns:
+        The resolved mapping, or ``None`` when ``shtab`` is unavailable.
+
+    Raises:
+        InvalidCommandError: If *spec* is an unknown string shorthand (``shtab`` present).
+    """
+    # Validate a string shorthand up front, regardless of whether shtab is installed, so a
+    # typo fails loudly in every environment (not only where the optional extra is present).
+    if isinstance(spec, str) and spec.lower() not in _COMPLETER_SHORTHANDS:
+        raise InvalidCommandError(
+            f"unknown completer shorthand {spec!r}; use 'file', 'dir', 'directory', "
+            f"or a {{shell: completer}} mapping"
+        )
+    try:
+        import shtab
+    except ImportError:
+        return None
+    if isinstance(spec, str):
+        presets = {"file": shtab.FILE, "dir": shtab.DIRECTORY, "directory": shtab.DIRECTORY}
+        return cast("dict[str, str]", presets[spec.lower()])
+    return spec
+
+
+def _apply_completer(
+    action: argparse.Action, owner: type[BaseCmdModel], name: str, spec: CompleterSpec | None
+) -> None:
+    """Attach a resolved completer to *action* (shtab reads ``action.complete``).
+
+    A no-op when *spec* is ``None`` or when ``shtab`` is unavailable.
+
+    Args:
+        action: The argparse action just created for the argument.
+        owner: The command class declaring the field (for error messages).
+        name: The field name (for error messages).
+        spec: The completer hint, or ``None``.
+    """
+    if spec is None:
+        return
+    try:
+        resolved = _resolve_completer(spec)
+    except InvalidCommandError as err:
+        raise InvalidCommandError(f"{owner.__name__}.{name}: {err}") from err
+    if resolved is not None:
+        # shtab reads this attribute when generating a script; argparse ignores it, so it
+        # is harmless (and simply unused) when shtab is not installed.
+        action.complete = resolved  # type: ignore[attr-defined]
