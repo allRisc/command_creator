@@ -226,6 +226,11 @@ dependencies = [
     { name = "pydantic" },
 ]
 
+[package.optional-dependencies]
+shtab = [
+    { name = "shtab" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "ruff" },
@@ -234,6 +239,7 @@ dev = [
 ]
 docs = [
     { name = "myst-parser" },
+    { name = "shtab" },
     { name = "sphinx" },
     { name = "sphinx-rtd-theme" },
 ]
@@ -245,7 +251,11 @@ typing = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pydantic", specifier = ">=2.13.5,<3.0.0" }]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.13.5,<3.0.0" },
+    { name = "shtab", marker = "extra == 'shtab'", specifier = ">=1.12.0" },
+]
+provides-extras = ["shtab"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -255,6 +265,7 @@ dev = [
 ]
 docs = [
     { name = "myst-parser", specifier = ">=4.0.1" },
+    { name = "shtab", specifier = ">=1.12.0" },
     { name = "sphinx", specifier = ">=5.3.0" },
     { name = "sphinx-rtd-theme", specifier = ">=2.0.0" },
 ]
@@ -742,6 +753,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ed/20/656d67f5b25ca9bda4e02b1de25867b2954e1d19e03648060f167ad0f4cc/ruff-0.16.5-py3-none-win32.whl", hash = "sha256:288b0a5f080492fe5635db849f9e2e84aa3cce7b7f0e955997d416c507c76a26", size = 10034250, upload-time = "2026-08-27T16:34:11.8Z" },
     { url = "https://files.pythonhosted.org/packages/5b/42/ee8e68a207b9127fcde6c3d7e197def432f346cb1af159e1fa14ca0d1cdc/ruff-0.16.5-py3-none-win_amd64.whl", hash = "sha256:ddc6385fb2137f616357ca03d6c74f4be987f80fed4008566b754f6032b8546f", size = 10516714, upload-time = "2026-08-27T16:34:13.963Z" },
     { url = "https://files.pythonhosted.org/packages/73/e3/7df5a396e445b9ba49ce9a9437439a4d80042c61c0ade199abf8d16de1ac/ruff-0.16.5-py3-none-win_arm64.whl", hash = "sha256:a64abe90968719b851bb7cedffaa8753fbdbdadab483089682db623f3edc587e", size = 10391564, upload-time = "2026-08-27T16:34:16.064Z" },
+]
+
+[[package]]
+name = "shtab"
+version = "1.12.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c9/3e/68e4adc2af22d3ff0c4967d52aaac825d33c20467bfd20348526f925e868/shtab-1.12.0.tar.gz", hash = "sha256:46d0b07e6820e3eaaaf95e437a6e89f66a6141dd8bd92da15321939ac692d44d", size = 65967, upload-time = "2026-08-24T16:39:25.477Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3a/eb/f45d7689298eaf2a49488cf3135464cb6b30e179e9637f99429cd61db7a0/shtab-1.12.0-py3-none-any.whl", hash = "sha256:e377c1451b68ce40abe63b378a389002f0befb2113796a80b047a2bfba0cfb68", size = 22669, upload-time = "2026-08-24T16:39:24.222Z" },
 ]
 
 [[package]]

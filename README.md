@@ -6,177 +6,220 @@
 [![License](https://img.shields.io/pypi/l/command_creator.svg)](https://pypi.org/project/command_creator/)
 [![Python Version](https://img.shields.io/pypi/pyversions/command_creator.svg)](https://pypi.org/project/command_creator/)
 
-Command Creator is a Python package that simplifies the creation of command-line interfaces (CLIs) using Python's `dataclasses`.
-It allows you to define commands as dataclass objects, making it easy to create, manage, and execute commands with various options and arguments.
-This package is particularly useful for developers who want to quickly set up CLIs without having to write extensive boilerplate code.
+Command Creator is a Python package that simplifies the creation of command-line interfaces (CLIs) from [pydantic](https://docs.pydantic.dev/) models.
+You define a command by subclassing `BaseCmdModel`, declaring each argument as a model field, and implementing `run()`.
+Field type annotations drive argument parsing, validation and coercion, so you get a fully-featured CLI without writing argparse boilerplate.
 
 ## Table of Contents
 
 - [Table of Contents](#table-of-contents)
+- [Installation](#installation)
 - [Simple Usage](#simple-usage)
 - [CLI Argument Features](#cli-argument-features)
   - [Positional Arguments and Options](#positional-arguments-and-options)
-  - [help](#help)
+  - [description](#description)
   - [abrv](#abrv)
   - [choices](#choices)
   - [metavar](#metavar)
   - [optional](#optional)
-  - [positional](#positional)
   - [default and default\_factory](#default-and-default_factory)
   - [count](#count)
+  - [Lists and tuples](#lists-and-tuples)
   - [completer](#completer)
 - [Argument Groups](#argument-groups)
 - [Sub-commands](#sub-commands)
 - [Using with Sphinx-Autoprogram](#using-with-sphinx-autoprogram)
-- [BASH and ZSH Auto-complete](#bash-and-zsh-auto-complete)
+- [Shell Completion](#shell-completion)
+
+## Installation
+
+```bash
+pip install command_creator
+```
+
+Command Creator requires Python 3.14+ and pydantic 2.13+.  Shell completion is available
+through an optional extra (see [Shell Completion](#shell-completion)):
+
+```bash
+pip install command_creator[shtab]
+```
 
 ## Simple Usage
 
-The `command_creator` package can be used to automatically create CLIs from dataclass objects.
-This is done using the `@dataclass` decorator, `command_creator.arg` method, and the `command_creator.Command` class.
+A command is a subclass of `command_creator.BaseCmdModel` (itself a `pydantic.BaseModel`).
+Declare each argument as a field using `arg()` for a positional argument or `option()` for
+an option (`--name`), implement `run()`, and call `run_and_exit()` as the entry point.
 
 ```python
-    from dataclasses import dataclass
-    from command_creator import arg, Command
+    from command_creator import BaseCmdModel, arg, option
 
 
-    # A command is a class which extends command_creator.Command and is a dataclass
-    @dataclass
-    class SimpleCommand(Command):
-        """This doc-string is used as the command description in the help message"""
+    class SimpleCommand(BaseCmdModel):
+        """This doc-string is used as the command description in the help message."""
 
-        positional: str = arg(
-            help="This is a positional argument, since it has no default"
-        )
-        extra_positional: str = arg(
-            default="Not-Given",
-            positional=True,
-            help="This is an extra positional argument, since it has 'positional=True'"
-        )
-        option: bool = arg(
-            default=False,
-            help="This is the --option argument which when given sets self.option to true"
-        )
-        output_file: str | None = arg(
-            default=None,
-            help="This is the '--output-file OUTPUT_FILE' argument"
-        )
-        args: list[str] | None = arg(
-            default=None,
-            help="This is the '--args ARGS [ARGS ...]' argument"
-        )
+        # arg() -> a positional argument. With no default it is required.
+        positional: str = arg(description="a required positional argument")
+        # A positional with a default becomes optional on the command line.
+        extra_positional: str = arg(default="Not-Given", description="an optional positional")
+        # option() -> an option (--flag). A bool field is always a flag.
+        flag: bool = option(default=False, description="sets self.flag to True when given")
+        # `--output-file OUTPUT_FILE`; None until provided.
+        output_file: str | None = option(default=None, description="where to write output")
+        # `--args ARGS [ARGS ...]`; a list field accepts multiple values.
+        args: list[str] | None = option(default=None, description="extra arguments")
 
-        # The __post_init__ method is called after creation of the object, but before running the command
-        #   It is optional
-        def __post_init__(self) -> None:
-            pass
-
-        # The __call__ method is required. This is the entry point for the command
-        def __call__(self) -> int:
+        # run() holds the command's logic. Override it in every command.
+        def run(self) -> None:
             print("Doing something")
-            return 0
 
 
-    # The execute class method can be used to parse command-line arguments and run the command
+    # run_and_exit() parses sys.argv, runs the command, and exits.
     if __name__ == "__main__":
-        SimpleCommand.execute()
+        SimpleCommand.run_and_exit()
 ```
+
+`arg()` and `option()` are thin wrappers over `pydantic.Field`: any `Field` keyword
+(`default`, `default_factory`, `description`, and validation constraints such as `ge` or
+`max_length`) is forwarded unchanged and fully type-checked.  If you build a `Field`
+yourself, `arg_meta()` produces the equivalent CLI metadata for its `json_schema_extra`.
+
+To parse without running, use `SimpleCommand.parse(argv)` (returns a populated instance) or
+`SimpleCommand.get_parser()` (returns the underlying `argparse.ArgumentParser`).
 
 ## CLI Argument Features
 
-Each dataclass field represents a command-line argument.
-In order to add functionality, these *must* use `command_creator.arg` to instantiate rather than `dataclasses.field`.
-This section outlines how this method can be used to create a wide-range of arguments.
+Each model field represents a command-line argument.
+To add CLI behaviour, declare the field with `command_creator.arg` (positional) or
+`command_creator.option` (option) rather than a bare `pydantic.Field`.
+This section outlines the keywords those helpers accept.
 
 ### Positional Arguments and Options
 
-In unix-style CLI there are two main ways data can be passed to the underlying command: as a positional argument or as an option.
-Positional arguments are interpreted based soley on their position.
-However, options use `-` characters and a name to denote their intended use.
-For example `--debug` is an option which might tell the underlying command to run in debug mode regardless of where it provided.
+In unix-style CLIs there are two main ways data can be passed to a command: as a positional
+argument or as an option.
+Positional arguments are interpreted based solely on their position.
+Options use `-`/`--` characters and a name, so `--debug` tells the command to run in debug
+mode regardless of where it is provided.
 
-Command Creator uses 3-indicators to determine whether an arugment should be interpreted as a Positional Arugment or an Option:
+The distinction is explicit in Command Creator:
 
-1. `positional`
+- `arg()` declares a **positional** argument.
+- `option()` declares an **option** (`--name`).
 
-    - Arguments which have `positional=True` are always treats as Positional Arguments
-    - See positional_ for more details
+Two field kinds are always options regardless of which helper is used, because there is no
+command-line concept for them as positionals:
 
-2. `default` and `default_factory`
+- `bool` fields, which become flags (`--flag` / `store_true`, or `store_false` when the
+  default is `True`).  A boolean must have a default.
+- `count=True` options (see [count](#count)), which are mutually exclusive with a positional.
 
-    - Arguments with a default are treated as options *unless* they are explicitly positional.
-    - See `default and default_factory`_ for more details
+A positional argument with a default (or `optional=True`) may be omitted on the command line;
+a required option (an `option()` with no default) must be provided.
 
-3. `count`
+### description
 
-    - Arguments which have `count=True` are treated as Options even if they don't have a default, because there is no command-line concept of counting positional arguments.
-    - `count=True` is mutually exclusive with `positional`
-    - See count_ for more details
-
-### help
-
-The `help` argument takes a string which is used for the help message of the command
+`arg()` / `option()` forward `description=` to `pydantic.Field`; it is used as the
+argument's help text in `--help`.
 
 ### abrv
 
-The `abrv` argument takes a string which is used as the `-[abrv]` abreviated option.
+The `abrv` keyword (options only) takes a single character used as the short `-[abrv]` form
+alongside the long `--name` option, e.g. `option(abrv="v")` exposes `-v`.  A numeric
+abbreviation is rejected because it would disable negative-number parsing.
 
 ### choices
 
-The `choices` argument takes a list or enum type which sets the valid inputs to the option/positional argument.
-If the provided argument is a subclass of the paython standard `Enum` then the options are the uppercase names of the enumerated values.
+Choices are derived from the field's **type annotation** - there is no `choices` keyword.
+Annotate the field as an `enum.Enum` subclass or a `typing.Literal[...]` and its members
+become the argument's valid values automatically:
+
+```python
+from enum import StrEnum
+from typing import Literal
+from command_creator import BaseCmdModel, option
+
+
+class Casing(StrEnum):
+    plain = "plain"
+    caps = "caps"
+
+
+class Cmd(BaseCmdModel):
+    casing: Casing = option(default=Casing.plain)          # --casing {plain,caps}
+    level: Literal["low", "high"] = option(default="low")  # --level {low,high}
+
+    def run(self) -> None: ...
+```
 
 ### metavar
 
-The `metavar` argument takes a string which is used as the `METAVAR` in the help string.
+The `metavar` keyword takes a string used as the value placeholder shown in `--help`.
 
 ### optional
 
-The `optional` argument takes a boolean and determines the following based on the argument:
+The `optional` keyword takes a boolean:
 
-- If the argument is *positional*
-
-  - Then the positional argument can be excluded in the command line
-  - If the argument is excluded and a default is given then the field gets set to the default
-  - If the argument is excluded and no default is given then the field gets set to `None`
-
-- If the argument is an *option*
-
-  - Then the optional option can be provided without an argument after it
-  - If the option is excluded from the command-line then the field gets set to the default
-  - If the option is provided w/o an argument then the field gets set to `None`
-  - If the option is provided w/ an argument then the field gets set to the provided argument
-
-### positional
-
-The `positional` argument takes a boolean.
-When true it forces the argument to be positional rather than an option.
+- On a **positional** argument it makes the value omittable (argparse `nargs="?"`); when
+  omitted the field takes its default.
+- On an **option** it allows `--opt` to be given with no following value, in which case the
+  field is set to `None`.  The field must be declared as `T | None` for this to be valid.
 
 ### default and default_factory
 
-Provides defaults to the underlying argument if it is not specified on the command-line.
-`default_factory` is a callable that can be used to create new objects at run-time.
-See the Python `dataclasses` module documentation for more details.
+`default` and `default_factory` are forwarded to `pydantic.Field`.
+A field with no default is required; giving it a default makes it optional.
+`default_factory` is a callable that builds a fresh default at run time (use it for mutable
+defaults such as lists).
+See the pydantic documentation for details.
 
 ### count
 
-A boolean which indicates that the argument is a counting option.
-This means that the argument can be provided multiple times and the value of the field will be the number of times the argument was provided.
-For example, if the argument is `--verbose` and it is provided 3 times, then the field will be set to `3`.
-This is useful for options that can be repeated to increase their effect, such as `--verbose` or `--debug`.
-It is mutually exclusive with `positional`, meaning that an argument cannot be both positional and a counting option.
+`count=True` (options only) makes a repeat-counter: the option may be provided multiple
+times and the field is set to the number of occurrences.
+For example a `--verbose`/`-v` option provided three times sets the field to `3`.
+It requires an `int` field and is mutually exclusive with a positional argument.
+
+```python
+verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
+```
+
+### Lists and tuples
+
+A field annotated as `list[T]` (or `set[T]` / `frozenset[T]`, or a variadic
+`tuple[T, ...]`) accepts multiple values on the command line.
+A required list requires at least one value (`nargs="+"`); a list with a default accepts
+zero or more (`nargs="*"`).
+A fixed-length `tuple[A, B, ...]` requires exactly that many values.
 
 ### completer
 
-The `completer` argument takes an object which can be used by argcomplete to provide auto-completion for the argument.
-This is useful for options that can take a limited set of values, such as `--color` which might take values like `red`, `green`, or `blue`.
-The completer should be a callable that takes no arguments and returns a list of strings.
-For example, if you have a list of colors, you could use the following:
+The `completer` argument attaches a shell-completion hint to an argument's value, consumed
+by [`shtab`](https://github.com/iterative/shtab) when it generates a completion script (see
+[Shell Completion](#shell-completion)). It accepts:
+
+- an `shtab` preset - `shtab.FILE` or `shtab.DIRECTORY`;
+- the string shorthands `"file"`, `"dir"` / `"directory"` (resolved to those presets);
+- a `{shell: snippet}` mapping for a custom completer per shell.
 
 ```python
-def color_completer():
-    return ["red", "green", "blue"]
+import shtab
+from command_creator import BaseCmdModel, arg, option
+
+
+class Convert(BaseCmdModel):
+    """Convert a file."""
+
+    src: str = arg(description="input file", completer="file")           # shorthand
+    out_dir: str = option(default=".", completer=shtab.DIRECTORY)         # shtab preset
+    fmt: str = option(                                                    # custom snippet
+        default="png", completer={"bash": "compgen -W 'png jpg webp'", "zsh": "(png jpg webp)"}
+    )
+
+    def run(self) -> None: ...
 ```
+
+`completer` requires the optional `shtab` dependency; without it the hint is stored but
+never applied (it only matters at script-generation time, which itself needs `shtab`).
 
 ## Argument Groups
 
@@ -242,52 +285,136 @@ The group title defaults to the child's `cmd_name` (if set), then the child clas
 
 ## Sub-commands
 
+A command becomes a parent of others by listing child command classes in the
+`sub_commands` key of its `model_config` (a `CmdConfig`).  Each child is itself a
+`BaseCmdModel`, so sub-commands nest to any depth.  Give a command a custom name or
+alternate names with `cmd_name` / `cmd_aliases`.
+
+When a sub-command is selected, `run_and_exit()` runs `run()` for **every** command along
+the invoked path, from root to leaf (whole-path dispatch).  A parent that declares
+`sub_commands` cannot also have positional arguments, since a positional would consume the
+sub-command token - expose those as options instead.
+
 ```python
-    @dataclass
-    class ReusableSubCommand(Command):
-        opt1: str = arg()
+from command_creator import BaseCmdModel, CmdConfig, arg, option
 
-        def __call__(self) -> int:
-            print("A sub-command which can be used across a variety of contexts")
-            return 0
 
-    @dataclass
-    class ParentCommand(Command):
+class Add(BaseCmdModel):
+    """Add a remote."""
 
-        @dataclass
-        class SpecificSubCommand(Command):
-            opt2: str = arg()
+    # cmd_name overrides the default (lower-cased class name).
+    model_config = CmdConfig(cmd_name="add", cmd_aliases=("a",))
 
-            def __call__(self) -> int:
-                print("A sub-command for use only in this parent command")
-                return 0
+    url: str = arg(description="remote URL")
+    name: str = option(default="origin", description="local name for the remote")
 
-        sub_commands = {
-            "specific": SpecificSubCommand,
-            "reusable": ReusableSubCommand,
-        }
+    def run(self) -> None:
+        print(f"Added remote {self.name!r} -> {self.url}")
 
-        def __call__(self) -> int:
-            if self.sub_command is not None:
-                self.sub_command()
+
+class Remote(BaseCmdModel):
+    """Manage remotes."""
+
+    model_config = CmdConfig(sub_commands=(Add,))
+
+    def run(self) -> None:
+        # Runs before the selected child; nothing to do here.
+        pass
+
+
+class Tool(BaseCmdModel):
+    """Top-level tool: `tool remote add <url> --name origin`."""
+
+    model_config = CmdConfig(sub_commands=(Remote,))
+    verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
+
+    def run(self) -> None: ...
+
+
+if __name__ == "__main__":
+    Tool.run_and_exit()
 ```
+
+Sub-commands can also be registered imperatively with `add_sub_command`, either as a class
+decorator or by passing the class directly - handy for reusing a command across several
+parents:
+
+```python
+@Remote.add_sub_command
+class Remove(BaseCmdModel):
+    """Remove a remote."""
+
+    name: str = arg(description="remote to remove")
+
+    def run(self) -> None:
+        print(f"Removed {self.name!r}")
+
+
+Tool.add_sub_command(Remote)  # equivalent to listing it in sub_commands
+```
+
+The selected child is reachable at `self.sub_command`, and `self.command_chain()` returns
+the full invoked path from this command down to the selected leaf.
 
 ## Using with Sphinx-Autoprogram
 
+`get_parser()` returns the underlying `argparse.ArgumentParser`, so the tool documents
+cleanly with [`sphinxcontrib-autoprogram`](https://sphinxcontrib-autoprogram.readthedocs.io/):
+
 ```rst
-    .. autoprogram:: pkg_name.module:CommandClass.create_parser(True)
+    .. autoprogram:: pkg_name.module:CommandClass.get_parser()
 ```
 
-## BASH and ZSH Auto-complete
+## Shell Completion
 
-Bash and ZSH Auto-complete can be enabled by adding the following line to the top of your script.
-This will allow the command to be auto-completed in the shell.
-Additionally, the `argcomplete` package must be installed.
+Command Creator can generate completion scripts for `bash`, `zsh`, `tcsh`, `fish` and
+`powershell` via the optional [`shtab`](https://github.com/iterative/shtab) dependency:
+
+```bash
+pip install command_creator[shtab]
+```
+
+Set `completion=True` in your **root** command's `model_config` (see `CmdConfig`) and the
+tool automatically grows a `completion <shell>` sub-command:
 
 ```python
-    # PYTHON_ARGCOMPLETE_OK
+from command_creator import BaseCmdModel, CmdConfig, arg, option
 
-    @dataclass
-    class MyCommand(Command):
-        # Your command definition here
+
+class Greet(BaseCmdModel):
+    """Greet someone."""
+
+    name: str = arg(description="who to greet")
+
+    def run(self) -> None:
+        print(f"Hello, {self.name}!")
+
+
+class Tool(BaseCmdModel):
+    """Example tool."""
+
+    # completion=True -> a `completion <shell>` verb; completion_name renames it.
+    model_config = CmdConfig(sub_commands=(Greet,), completion=True)
+
+    def run(self) -> None: ...
+
+
+if __name__ == "__main__":
+    Tool.run_and_exit()
 ```
+
+Users then source the script for their shell (once, or from their shell rc file):
+
+```bash
+eval "$(mytool completion bash)"        # bash
+eval "$(mytool completion zsh)"         # zsh
+mytool completion fish | source         # fish
+```
+
+Notes:
+
+- The script is emitted at parse time, so a command's `run()` output can never pollute it.
+- Rename the verb with `CmdConfig(completion=True, completion_name="complete")`.
+- Enabling `completion=True` without `shtab` installed raises `InvalidCommandError`.
+- Per-argument completers (file paths, directories, custom snippets) are configured with
+  the [`completer`](#completer) keyword on `arg()` / `option()`.

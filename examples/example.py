@@ -23,10 +23,13 @@ Try it out::
     python example.py greet Ada --loud
     python example.py remote add https://example.com --name origin
     python example.py rm add https://example.com   # 'rm' is an alias of 'remote'
+
+Shell completion (needs the optional ``shtab`` extra: ``pip install command_creator[shtab]``)::
+
+    eval "$(python example.py completion bash)"   # or zsh / tcsh / fish / powershell
 """
 
 from enum import StrEnum
-from typing import ClassVar
 
 from command_creator import BaseCmdModel, CmdConfig, arg, group, option
 
@@ -82,6 +85,10 @@ class RemoteAdd(BaseCmdModel):
 
     url: str = arg(description="remote URL")
     name: str = option(default="origin", description="local name for the remote")
+    # completer="file" makes the shell tab-complete file paths for --config (shtab).
+    config: str | None = option(
+        default=None, description="path to a config file", completer="file"
+    )
     # A nested command as a field becomes a titled argument group; its parsed values are
     # reachable at `self.auth.username` / `self.auth.token`.
     auth: Auth = group()
@@ -97,8 +104,7 @@ class RemoteAdd(BaseCmdModel):
 class Remote(BaseCmdModel):
     """Manage remotes (has its own sub-commands, nested to any depth)."""
 
-    model_config = CmdConfig(cmd_aliases=("rmt",))
-    sub_commands: ClassVar = (RemoteAdd,)
+    model_config = CmdConfig(cmd_aliases=("rmt",), sub_commands=(RemoteAdd,))
 
     def run(self) -> None:
         # Runs before the selected child (whole-path dispatch); nothing to do here.
@@ -108,9 +114,10 @@ class Remote(BaseCmdModel):
 class Tool(BaseCmdModel):
     """A small example tool.  Its sub-commands do the real work."""
 
+    # completion=True adds a `completion <shell>` verb (needs the optional shtab extra).
+    model_config = CmdConfig(sub_commands=(Greet, Remote), completion=True)
     # A repeat-counter: `-vvv` -> verbose == 3.
     verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
-    sub_commands: ClassVar = (Greet, Remote)
 
     def run(self) -> None:
         if self.verbose:

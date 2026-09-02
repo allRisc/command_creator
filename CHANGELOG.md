@@ -28,11 +28,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `arg_meta()` helper that produces the CLI metadata for a hand-built `pydantic.Field`
   (via its `json_schema_extra`).
 - `InvalidCommandError` is exported from the package root.
+- `suggest_on_error` and `color` keyword arguments on `get_parser()`, `parse()` and
+  `run_and_exit()`, forwarded to Python 3.14's `argparse.ArgumentParser` (closest-match
+  suggestions on unrecognised arguments, and colourised usage/`--help`). Both propagate to
+  every sub-command parser.
+- Shell completion via the optional [`shtab`](https://github.com/iterative/shtab)
+  dependency (`pip install command_creator[shtab]`). Set `completion=True` in a root
+  command's `model_config` (see `CmdConfig`) to auto-add a `completion <shell>`
+  sub-command that prints a completion script for `bash`, `zsh`, `tcsh`, `fish` or
+  `powershell` (e.g. `eval "$(mytool completion bash)"`); the verb name is configurable via
+  `completion_name`. The script is emitted at parse time, so it is never polluted by a
+  command's `run()` output. Attach a per-argument completer with the new `completer=`
+  keyword on `arg()` / `option()` / `arg_meta()` - pass an `shtab` preset
+  (`shtab.FILE` / `shtab.DIRECTORY`), the shorthands `"file"` / `"dir"`, or a
+  `{shell: snippet}` mapping. Enabling `completion=True` without `shtab` installed raises
+  `InvalidCommandError`; a bare `completer=` is inert without `shtab`.
 
 ### Removed
 
 - **BREAKING**: The dataclass-based `Command` base class and its `@dataclass`/`__call__`
   usage pattern. See the documentation for the migration path to `BaseCmdModel`.
+
+### Fixed
+
+- Rewrote `README.md` for the `BaseCmdModel` API (the "Simple Usage", "CLI Argument
+  Features" and "Sub-commands" sections still showed the removed dataclass `Command`
+  usage), and updated the Sphinx-autoprogram snippet to `get_parser()`.
+- Docs (`tox -e docs_dirhtml`) now build under `-W`: added `shtab` to the `docs`
+  dependency group (the Sphinx `conf.py` imports the completion-enabled example), and
+  stopped the autosummary class template from emitting per-key summary tables for the
+  `CmdConfig`/`FieldKwargs` TypedDicts (their inherited keys are not importable).
+- `tox -e typing` now passes: mypy treats the optional, lazily-imported `shtab` module as
+  having missing imports rather than erroring.
 
 3.0.0a1
 ----------------------------------------------------------------------
