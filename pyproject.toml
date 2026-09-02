@@ -67,6 +67,8 @@ docs = [
     "sphinx>=5.3.0",
     "sphinx-rtd-theme>=2.0.0",
     "myst-parser>=4.0.1",
+    # conf.py imports examples/example.py, which enables shell completion.
+    "shtab>=1.12.0",
 ]
 tests = [
     "pytest>=7.4.4",
@@ -123,6 +125,12 @@ pretty = true
 python_version = "3.14"
 
 files = ["src"]
+
+# shtab is an optional dependency imported lazily behind a try/except; it ships no type
+# stubs and is absent from the typing environment, so let mypy treat it as untyped.
+[[tool.mypy.overrides]]
+module = ["shtab", "shtab.*"]
+ignore_missing_imports = true
 
 [tool.tox]
 env_list = [

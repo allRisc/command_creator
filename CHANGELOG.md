@@ -49,6 +49,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING**: The dataclass-based `Command` base class and its `@dataclass`/`__call__`
   usage pattern. See the documentation for the migration path to `BaseCmdModel`.
 
+### Fixed
+
+- Rewrote `README.md` for the `BaseCmdModel` API (the "Simple Usage", "CLI Argument
+  Features" and "Sub-commands" sections still showed the removed dataclass `Command`
+  usage), and updated the Sphinx-autoprogram snippet to `get_parser()`.
+- Docs (`tox -e docs_dirhtml`) now build under `-W`: added `shtab` to the `docs`
+  dependency group (the Sphinx `conf.py` imports the completion-enabled example), and
+  stopped the autosummary class template from emitting per-key summary tables for the
+  `CmdConfig`/`FieldKwargs` TypedDicts (their inherited keys are not importable).
+- `tox -e typing` now passes: mypy treats the optional, lazily-imported `shtab` module as
+  having missing imports rather than erroring.
+
 3.0.0a1
 ----------------------------------------------------------------------
 

@@ -239,6 +239,7 @@ dev = [
 ]
 docs = [
     { name = "myst-parser" },
+    { name = "shtab" },
     { name = "sphinx" },
     { name = "sphinx-rtd-theme" },
 ]
@@ -264,6 +265,7 @@ dev = [
 ]
 docs = [
     { name = "myst-parser", specifier = ">=4.0.1" },
+    { name = "shtab", specifier = ">=1.12.0" },
     { name = "sphinx", specifier = ">=5.3.0" },
     { name = "sphinx-rtd-theme", specifier = ">=2.0.0" },
 ]
