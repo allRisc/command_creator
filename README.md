@@ -28,6 +28,7 @@ Field type annotations drive argument parsing, validation and coercion, so you g
   - [completer](#completer)
 - [Argument Groups](#argument-groups)
 - [Sub-commands](#sub-commands)
+- [Propagating options to sub-commands](#propagating-options-to-sub-commands)
 - [Using with Sphinx-Autoprogram](#using-with-sphinx-autoprogram)
 - [Shell Completion](#shell-completion)
 
@@ -355,6 +356,41 @@ Tool.add_sub_command(Remote)  # equivalent to listing it in sub_commands
 
 The selected child is reachable at `self.sub_command`, and `self.command_chain()` returns
 the full invoked path from this command down to the selected leaf.
+
+## Propagating options to sub-commands
+
+Normally an option declared on a parent command must be given *before* the sub-command
+token: once argparse consumes the sub-command name, the rest of the line is handed to the
+sub-command's parser, which does not know the parent's options. So `tool --verbose remote
+add URL` works but `tool remote add URL --verbose` does not.
+
+Mark an option (or a `group()`) with `propagate=True` to make it a **global** option,
+accepted anywhere in the argument list - before *or* after any sub-command token, at any
+nesting depth:
+
+```python
+class Tool(BaseCmdModel):
+    model_config = CmdConfig(sub_commands=(Remote,))
+
+    # A global flag: usable as `tool -v remote add URL` *or* `tool remote add URL -v`.
+    verbose: int = option(default=0, count=True, abrv="v", propagate=True)
+    # A group can propagate all of its flattened fields at once.
+    logging: LogOpts = group(propagate=True)
+
+    def run(self) -> None: ...
+```
+
+The option remains owned by the declaring command - read it as `self.verbose` regardless of
+where it was typed on the command line. If it is given at more than one level the deepest
+(last) value wins.
+
+Two rules keep the "anywhere" promise honest, each enforced when the parser is built
+(raising `InvalidCommandError`):
+
+- the field must have a default (a propagated option must be omittable at every level it can
+  appear, so it cannot be required), and
+- only options and groups can propagate, not positional arguments (a positional's meaning
+  depends on its position, so "anywhere" is meaningless).
 
 ## Using with Sphinx-Autoprogram
 

@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `propagate=True` on `option()` / `group()` (or `arg_meta(propagate=True)`) makes an
+  option available on every descendant sub-command's parser as well, so a "global" flag
+  like `--verbose` / `--config` may be given anywhere in the argument list - before *or*
+  after a sub-command token, at any nesting depth (`tool --verbose sub` or
+  `tool sub --verbose`). The option remains owned by the declaring command (`self.<field>`
+  reads it); the deepest level given wins if it is repeated. A propagated `group()`
+  propagates all of its flattened fields. Propagation requires the field to have a default
+  (a propagated argument must be omittable everywhere it appears) and is not supported on
+  positional arguments; violating either raises `InvalidCommandError`.
 - Argument groups for organising `--help` output. Pass `group="Title"` to `arg()` /
   `option()` to list arguments under a shared heading, or declare a field whose type is a
   `BaseCmdModel` subclass to flatten that nested model's fields into a titled group. The

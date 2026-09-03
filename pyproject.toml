@@ -148,6 +148,9 @@ wheel_build_env = ".pkg"
 constrain_package_deps = true
 use_frozen_constraints = true
 dependency_groups = ["tests"]
+# Install the optional shtab extra so the completion tests run instead of being skipped
+# by their `pytest.importorskip("shtab")` guard (they still skip if the extra is dropped).
+extras = ["shtab"]
 
 commands = [[
     "pytest", "-v", "--tb=short", "--basetemp={env_tmp_dir}",

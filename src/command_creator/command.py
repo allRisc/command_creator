@@ -50,6 +50,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Literal,
+    NamedTuple,
     NoReturn,
     Self,
     TypedDict,
@@ -107,6 +108,26 @@ _RESERVED_NAMES = frozenset(
         "parse",
     }
 )
+
+
+class _InheritedArg(NamedTuple):
+    """A propagated argument carried down from an ancestor command to a sub-parser.
+
+    Built by :meth:`BaseCmdModel._collect_propagated` at the *owner* level (so ``dest``
+    is already prefixed for the owner), then re-added verbatim to every descendant
+    sub-parser by :meth:`BaseCmdModel._add_inherited_arguments`.
+    """
+
+    owner: type[BaseCmdModel]
+    """The command class that declared the propagated field (for error messages)."""
+    name: str
+    """The field name."""
+    field: FieldInfo
+    """The field's ``FieldInfo``."""
+    dest: str
+    """The owner's prefixed argparse ``dest``; shared unchanged by every descendant copy."""
+    group_title: str | None
+    """The ``--help`` group title the argument is listed under, or ``None``."""
 
 
 class CmdConfig(ConfigDict, total=False):
@@ -201,6 +222,7 @@ def arg_meta(
     group: str | None = None,
     group_title: str | None = None,
     completer: CompleterSpec | None = None,
+    propagate: bool | None = None,
     **extra: Any,
 ) -> dict[str, Any]:
     """Build the command-line metadata mapping for a *raw* ``pydantic.Field``.
@@ -233,6 +255,10 @@ def arg_meta(
             :class:`BaseCmdModel` subclass built as a raw ``Field``).
         completer: Shell-completion hint for the argument's value, consumed by
             :mod:`shtab` (see :data:`CompleterSpec` and :func:`option`).
+        propagate: Make the argument available on every descendant sub-command's parser
+            too, so it may be given anywhere in the argument list -- before *or* after a
+            sub-command token, at any depth (see :func:`option`).  Only meaningful for
+            options and groups (not positionals) and requires the field to have a default.
         **extra: Any additional metadata keys, stored verbatim.
 
     Returns:
@@ -247,6 +273,7 @@ def arg_meta(
         "group": group,
         "group_title": group_title,
         "completer": completer,
+        "propagate": propagate,
     }
     data: dict[str, Any] = {key: value for key, value in recognised.items() if value is not None}
     data.update(extra)  # extra keys pass through verbatim, including explicit None
@@ -312,6 +339,7 @@ def option(
     metavar: str | None = None,
     group: str | None = None,
     completer: CompleterSpec | None = None,
+    propagate: bool = False,
     **field_kwargs: Unpack[FieldKwargs],
 ) -> Any:
     """Declare a field as a command-line *option* (``--name``).
@@ -338,6 +366,14 @@ def option(
             ``"file"`` / ``"dir"``, or a ``{shell: snippet}`` mapping.  Requires the
             optional ``shtab`` dependency; without it the hint is stored but never applied
             (it only matters at script-generation time, which itself needs ``shtab``).
+        propagate: Make this option available on every descendant sub-command's parser as
+            well, so it may be given *anywhere* in the argument list -- before or after a
+            sub-command token, at any nesting depth (e.g. a global ``--verbose`` / ``--config``
+            usable as ``tool --verbose sub`` *or* ``tool sub --verbose``).  The option is
+            still owned by this command (``self.<field>`` reads it); a descendant merely
+            re-accepts it, and the deepest level given wins if it is repeated.  Requires the
+            field to have a default (a propagated option must be omittable everywhere it
+            appears, so it cannot be required); positionals cannot be propagated.
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -356,12 +392,15 @@ def option(
         cli_meta["group"] = group
     if completer is not None:
         cli_meta["completer"] = completer
+    if propagate:
+        cli_meta["propagate"] = True
     return _make_field(cli_meta, field_kwargs)
 
 
 def group(
     *,
     title: str | None = None,
+    propagate: bool = False,
     **field_kwargs: Any,
 ) -> Any:
     """Declare a field as a *nested argument group*.
@@ -384,6 +423,9 @@ def group(
     Args:
         title: The ``--help`` group title.  When omitted the title falls back to the
             child class's ``cmd_name`` (if set via :class:`CmdConfig`), then its class name.
+        propagate: Propagate *every* flattened field of this group to descendant
+            sub-commands, so each may be given anywhere in the argument list (see
+            :func:`option`).  All of the group's sub-fields must then have a default.
         **field_kwargs: Forwarded verbatim to :func:`pydantic.Field`.
 
     Returns:
@@ -392,6 +434,8 @@ def group(
     cli_meta: dict[str, Any] = {}
     if title is not None:
         cli_meta["group_title"] = title
+    if propagate:
+        cli_meta["propagate"] = True
     return _make_field(cli_meta, field_kwargs)
 
 
@@ -670,6 +714,7 @@ class BaseCmdModel(BaseModel):
         suggest_on_error: bool,
         color: bool,
         completion_active: bool = False,
+        inherited: tuple[_InheritedArg, ...] = (),
     ) -> None:
         """Recursively add this command's arguments and sub-commands to *parser*.
 
@@ -685,8 +730,17 @@ class BaseCmdModel(BaseModel):
                 every level.  When set, undocumented sub-commands are given a non-empty
                 ``help``/``description`` fallback so ``shtab``'s zsh/fish generators (which
                 dereference those strings) do not crash on a ``None``.
+            inherited: Propagated arguments accumulated from every ancestor command; each
+                is re-added to *this* parser (see :meth:`_add_inherited_arguments`) so it
+                may be given here as well, then merged with this command's own propagated
+                arguments and handed down to each sub-command.
         """
-        has_positional = cls._add_arguments(parser, prefix)
+        groups: dict[str, argparse._ArgumentGroup] = {}
+        has_positional = cls._add_arguments(parser, prefix, groups)
+        # Re-add every ancestor-propagated argument to this parser so it is accepted after
+        # the sub-command token too, then extend the set with this command's own.
+        cls._add_inherited_arguments(parser, groups, inherited)
+        inherited = (*inherited, *cls._collect_propagated(prefix))
 
         sub_commands = cls.get_sub_commands()
         # The completion verb is a root-only sub-command; import shtab eagerly here (rather
@@ -761,6 +815,7 @@ class BaseCmdModel(BaseModel):
                 suggest_on_error=suggest_on_error,
                 color=color,
                 completion_active=completion_active,
+                inherited=inherited,
             )
 
         if want_completion:
@@ -833,8 +888,9 @@ class BaseCmdModel(BaseModel):
         cls,
         prefix: str,
         group_title: str | None = None,
+        propagate: bool = False,
         _seen: frozenset[type[BaseCmdModel]] = frozenset(),
-    ) -> Iterator[tuple[type[BaseCmdModel], str, FieldInfo, str | None]]:
+    ) -> Iterator[tuple[type[BaseCmdModel], str, FieldInfo, str | None, bool]]:
         """Yield every CLI field of this command, flattening nested groups.
 
         A field whose type is a :class:`BaseCmdModel` subclass is a *group*: it is not
@@ -846,12 +902,15 @@ class BaseCmdModel(BaseModel):
                 group's flattened fields so they live in the same flat namespace).
             group_title: The enclosing group title, propagated to nested fields; ``None``
                 at the top level.
+            propagate: Whether an enclosing group was marked ``propagate=True`` (so every
+                flattened field inherits it); ``False`` at the top level.
             _seen: Group classes already expanded on this path, guarding against cycles.
 
         Yields:
-            ``(owner, name, field, group_title)`` tuples: the class declaring the field,
-            its name, its ``FieldInfo`` and the group title it should be listed under (or
-            ``None`` for the command's ungrouped arguments).
+            ``(owner, name, field, group_title, propagate)`` tuples: the class declaring
+            the field, its name, its ``FieldInfo``, the group title it should be listed
+            under (or ``None`` for the command's ungrouped arguments), and whether the
+            field should be propagated to descendant sub-commands.
         """
         if cls in _seen:
             raise InvalidCommandError(f"{cls.__name__}: recursive argument group detected")
@@ -883,27 +942,38 @@ class BaseCmdModel(BaseModel):
                     )
                 # An enclosing group's title wins so nested groups render as one section.
                 title = group_title if group_title is not None else _group_title(child, meta)
-                yield from child._iter_cli_fields(prefix, group_title=title, _seen=seen)
+                # An enclosing propagated group makes every flattened field propagate too.
+                child_propagate = propagate or bool(meta.get("propagate"))
+                yield from child._iter_cli_fields(
+                    prefix, group_title=title, propagate=child_propagate, _seen=seen
+                )
             else:
                 field_group = group_title if group_title is not None else meta.get("group")
-                yield cls, name, field, field_group
+                field_propagate = propagate or bool(meta.get("propagate"))
+                yield cls, name, field, field_group, field_propagate
 
     @classmethod
-    def _add_arguments(cls, parser: argparse.ArgumentParser, prefix: str) -> bool:
+    def _add_arguments(
+        cls,
+        parser: argparse.ArgumentParser,
+        prefix: str,
+        groups: dict[str, argparse._ArgumentGroup],
+    ) -> bool:
         """Add every field of this command (and its flattened groups) to *parser*.
 
         Args:
             parser: The parser representing this command.
             prefix: Dest prefix isolating this command's fields.
+            groups: Title -> argparse group cache, shared with any inherited (propagated)
+                arguments added afterwards so a shared title lands in one ``--help`` section.
 
         Returns:
             Whether any positional argument was added (parents that also declare
             sub-commands may not have positionals -- they would swallow the token).
         """
         has_positional = False
-        groups: dict[str, argparse._ArgumentGroup] = {}
         seen_dests: set[str] = set()
-        for owner, name, field, group_title in cls._iter_cli_fields(prefix):
+        for owner, name, field, group_title, _propagate in cls._iter_cli_fields(prefix):
             dest = f"{prefix}{name}"
             if dest in seen_dests:
                 raise InvalidCommandError(
@@ -913,16 +983,75 @@ class BaseCmdModel(BaseModel):
                 )
             seen_dests.add(dest)
 
-            if group_title is None:
-                target: argparse.ArgumentParser | argparse._ArgumentGroup = parser
-            elif group_title in groups:
-                target = groups[group_title]
-            else:
-                target = groups[group_title] = parser.add_argument_group(group_title)
-
+            target = _group_target(parser, groups, group_title)
             if cls._add_one_argument(target, owner, name, field, dest):
                 has_positional = True
         return has_positional
+
+    @classmethod
+    def _collect_propagated(cls, prefix: str) -> list[_InheritedArg]:
+        """Return this command's own propagated arguments, as :class:`_InheritedArg`.
+
+        These are re-added to every descendant sub-parser (see
+        :meth:`_add_inherited_arguments`) so a propagated option may be given anywhere in
+        the argument list.  Validation rejects a propagated positional or required field:
+        a propagated argument must be omittable everywhere it can appear.
+
+        Args:
+            prefix: Dest prefix isolating this command's fields (owns the shared ``dest``).
+
+        Returns:
+            One :class:`_InheritedArg` per propagated field (groups already flattened).
+        """
+        collected: list[_InheritedArg] = []
+        for owner, name, field, group_title, propagate in cls._iter_cli_fields(prefix):
+            if not propagate:
+                continue
+            meta = _field_meta(field)
+            inner, _ = _unwrap_optional(field.annotation)
+            is_bool = inner is bool
+            is_count = bool(meta.get("count", False))
+            force_positional = meta.get("positional")
+            positional = (
+                bool(force_positional)
+                if force_positional is not None
+                else field.is_required() and not is_bool and not is_count
+            )
+            if positional:
+                raise InvalidCommandError(
+                    f"{owner.__name__}.{name}: propagate is only supported on options and "
+                    f"groups, not positional arguments; declare it with option()"
+                )
+            if field.is_required():
+                raise InvalidCommandError(
+                    f"{owner.__name__}.{name}: propagate=True requires a default (a "
+                    f"propagated argument may appear after the sub-command, so it cannot "
+                    f"be required)"
+                )
+            collected.append(_InheritedArg(owner, name, field, f"{prefix}{name}", group_title))
+        return collected
+
+    @classmethod
+    def _add_inherited_arguments(
+        cls,
+        parser: argparse.ArgumentParser,
+        groups: dict[str, argparse._ArgumentGroup],
+        inherited: Sequence[_InheritedArg],
+    ) -> None:
+        """Re-add each ancestor-propagated argument to *parser* (a descendant sub-parser).
+
+        Every copy keeps the owner's ``dest`` and is forced to ``default=SUPPRESS`` (see
+        :meth:`_add_one_argument`) so omitting it at this level never clobbers a value the
+        ancestor supplied; supplying it here overrides.
+
+        Args:
+            parser: The descendant sub-parser to add the inherited arguments to.
+            groups: Title -> group cache shared with this parser's own arguments.
+            inherited: The propagated arguments accumulated from every ancestor.
+        """
+        for owner, name, field, dest, group_title in inherited:
+            target = _group_target(parser, groups, group_title)
+            cls._add_one_argument(target, owner, name, field, dest, as_inherited=True)
 
     @classmethod
     def _add_one_argument(
@@ -932,6 +1061,7 @@ class BaseCmdModel(BaseModel):
         name: str,
         field: FieldInfo,
         dest: str,
+        as_inherited: bool = False,
     ) -> bool:
         """Add a single field to *target* as a CLI argument.
 
@@ -941,6 +1071,11 @@ class BaseCmdModel(BaseModel):
             name: The field name.
             field: The field's ``FieldInfo``.
             dest: The prefixed argparse ``dest`` for this argument.
+            as_inherited: When ``True`` the argument is a *propagated copy* re-added to a
+                descendant sub-parser: it keeps the owner's ``dest`` but is forced to
+                ``default=argparse.SUPPRESS`` and is never marked ``required``, so omitting
+                it here leaves any ancestor-supplied value untouched.  Propagated arguments
+                are always options, so only the option branch runs.
 
         Returns:
             Whether the argument was added as a positional.
@@ -1046,6 +1181,13 @@ class BaseCmdModel(BaseModel):
                 f"{owner.__name__}.{name}: completer= is meaningless on a flag/count "
                 f"argument that takes no value"
             )
+
+        if as_inherited:
+            # A propagated copy on a descendant: SUPPRESS so an absent copy never
+            # overwrites an ancestor-supplied value, and never required (the owner's
+            # parser -- not the descendant's -- carries any requirement / concrete default).
+            kwargs["default"] = argparse.SUPPRESS
+
         try:
             if positional:
                 # For a positional the name *is* the dest; a metavar (set above) keeps
@@ -1054,13 +1196,19 @@ class BaseCmdModel(BaseModel):
                 _apply_completer(action, owner, name, completer)
                 return True
             option = f"--{name.replace('_', '-')}"
-            if required and not is_bool and not is_count:
+            if required and not is_bool and not is_count and not as_inherited:
                 kwargs["required"] = True
             flags = [option, f"-{abrv}"] if abrv else [option]
             action = target.add_argument(*flags, dest=dest, **kwargs)
             _apply_completer(action, owner, name, completer)
         except argparse.ArgumentError as err:
-            raise InvalidCommandError(f"{owner.__name__}.{name}: {err}") from err
+            hint = (
+                f" (a propagated argument {name!r} clashes with an argument the "
+                f"sub-command already defines)"
+                if as_inherited
+                else ""
+            )
+            raise InvalidCommandError(f"{owner.__name__}.{name}: {err}{hint}") from err
         return False
 
     @staticmethod
@@ -1191,6 +1339,23 @@ def _field_meta(field: FieldInfo) -> dict[str, Any]:
     """Return a field's CLI metadata mapping (its ``json_schema_extra`` dict, or ``{}``)."""
     extra = field.json_schema_extra
     return extra if isinstance(extra, dict) else {}
+
+
+def _group_target(
+    parser: argparse.ArgumentParser,
+    groups: dict[str, argparse._ArgumentGroup],
+    group_title: str | None,
+) -> argparse.ArgumentParser | argparse._ArgumentGroup:
+    """Resolve the parser or argument group an argument titled *group_title* belongs to.
+
+    Groups are cached in *groups* by title so every argument sharing a title (own or
+    inherited) lands in a single ``--help`` section; ``None`` maps to *parser* itself.
+    """
+    if group_title is None:
+        return parser
+    if group_title not in groups:
+        groups[group_title] = parser.add_argument_group(group_title)
+    return groups[group_title]
 
 
 def _group_child(field: FieldInfo) -> type[BaseCmdModel] | None:

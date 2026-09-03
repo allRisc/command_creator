@@ -23,6 +23,7 @@ Try it out::
     python example.py greet Ada --loud
     python example.py remote add https://example.com --name origin
     python example.py rm add https://example.com   # 'rm' is an alias of 'remote'
+    python example.py remote add https://example.com -vv   # -v (propagated) works here too
 
 Shell completion (needs the optional ``shtab`` extra: ``pip install command_creator[shtab]``)::
 
@@ -116,8 +117,11 @@ class Tool(BaseCmdModel):
 
     # completion=True adds a `completion <shell>` verb (needs the optional shtab extra).
     model_config = CmdConfig(sub_commands=(Greet, Remote), completion=True)
-    # A repeat-counter: `-vvv` -> verbose == 3.
-    verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
+    # A repeat-counter: `-vvv` -> verbose == 3.  propagate=True makes it a *global* flag,
+    # usable anywhere: `tool -v remote add URL` or `tool remote add URL -v`.
+    verbose: int = option(
+        default=0, count=True, abrv="v", description="increase verbosity", propagate=True
+    )
 
     def run(self) -> None:
         if self.verbose:
