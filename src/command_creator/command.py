@@ -218,6 +218,7 @@ def arg_meta(
     positional: bool | None = None,
     optional: bool | None = None,
     count: bool | None = None,
+    negatable: bool | None = None,
     metavar: str | None = None,
     group: str | None = None,
     group_title: str | None = None,
@@ -247,6 +248,10 @@ def arg_meta(
         count: Treat the argument as a repeat-counter (argparse ``action="count"``), e.g.
             ``-vvv`` -> ``3``.  Only valid on ``int`` fields and mutually exclusive with
             ``positional``.
+        negatable: Emit a paired ``--name`` / ``--no-name`` flag (argparse
+            ``BooleanOptionalAction``) instead of a single flag, so a boolean can be
+            switched both on and off from the command line; the last one given wins.  Only
+            valid on ``bool`` fields (see :func:`option`).
         metavar: Override the placeholder shown for the argument's value in ``--help``.
         group: Title of the ``--help`` argument group this argument is listed under.
             Arguments sharing a title are grouped together (see :func:`option`).
@@ -269,6 +274,7 @@ def arg_meta(
         "positional": positional,
         "optional": optional,
         "count": count,
+        "negatable": negatable,
         "metavar": metavar,
         "group": group,
         "group_title": group_title,
@@ -336,6 +342,7 @@ def option(
     abrv: str | None = None,
     count: bool = False,
     optional: bool = False,
+    negatable: bool = False,
     metavar: str | None = None,
     group: str | None = None,
     completer: CompleterSpec | None = None,
@@ -353,6 +360,11 @@ def option(
         count: Treat the option as a repeat-counter (``-vvv`` -> ``3``); ``int`` only.
         optional: Allow ``--opt`` to be given with no value, yielding ``None`` (declare
             the field as ``T | None``).
+        negatable: For a ``bool`` field, emit a paired ``--name`` / ``--no-name`` flag
+            (argparse ``BooleanOptionalAction``) instead of a single flag, so the value can
+            be switched both on and off explicitly.  The two share one destination and are
+            mutually exclusive -- the last one given on the command line wins.  A short
+            ``abrv`` (if any) sets the value to ``True``.  Only valid on ``bool`` fields.
         metavar: Override the value placeholder shown in ``--help``.
         group: Title of the ``--help`` argument group this option is listed under.
             Same-level arguments sharing a title -- via ``arg``/``option``, or a sibling
@@ -386,6 +398,8 @@ def option(
         cli_meta["count"] = True
     if optional:
         cli_meta["optional"] = True
+    if negatable:
+        cli_meta["negatable"] = True
     if metavar is not None:
         cli_meta["metavar"] = metavar
     if group is not None:
@@ -1092,6 +1106,7 @@ class BaseCmdModel(BaseModel):
         force_positional = meta.get("positional")
         value_optional = bool(meta.get("optional", False))
         is_count = bool(meta.get("count", False))
+        is_negatable = bool(meta.get("negatable", False))
         metavar = meta.get("metavar")
 
         inner, is_optional = _unwrap_optional(field.annotation)
@@ -1108,6 +1123,10 @@ class BaseCmdModel(BaseModel):
         if is_count and force_positional:
             raise InvalidCommandError(
                 f"{owner.__name__}.{name}: count and positional are mutually exclusive"
+            )
+        if is_negatable and not is_bool:
+            raise InvalidCommandError(
+                f"{owner.__name__}.{name}: negatable=True requires a bool field"
             )
         if abrv is not None and str(abrv).isdigit():
             raise InvalidCommandError(
@@ -1133,10 +1152,16 @@ class BaseCmdModel(BaseModel):
                     f"{owner.__name__}.{name}: a boolean flag must have a default "
                     f"(e.g. `{name}: bool = Field(False)`)"
                 )
-            # Direction (and the absent value) follow the default.
-            store_false = field.default is True
-            kwargs["action"] = "store_false" if store_false else "store_true"
-            kwargs["default"] = store_false
+            if is_negatable:
+                # A paired --name/--no-name flag sharing one dest; last given wins. The
+                # absent value is simply the field's default (either direction).
+                kwargs["action"] = argparse.BooleanOptionalAction
+                kwargs["default"] = field.default
+            else:
+                # Direction (and the absent value) follow the default.
+                store_false = field.default is True
+                kwargs["action"] = "store_false" if store_false else "store_true"
+                kwargs["default"] = store_false
             positional = False
         elif is_count:
             # A counter's natural absent value is 0 (or the field default).

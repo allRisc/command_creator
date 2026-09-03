@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `negatable=True` on `option()` (or `arg_meta(negatable=True)`) emits a paired
+  `--flag` / `--no-flag` for a `bool` field (via argparse's `BooleanOptionalAction`)
+  instead of a single flag, so the value can be switched both on and off from the command
+  line. The two share one destination and are mutually exclusive - the last one given
+  wins. It is only valid on `bool` fields; using it elsewhere raises `InvalidCommandError`.
 - `propagate=True` on `option()` / `group()` (or `arg_meta(propagate=True)`) makes an
   option available on every descendant sub-command's parser as well, so a "global" flag
   like `--verbose` / `--config` may be given anywhere in the argument list - before *or*

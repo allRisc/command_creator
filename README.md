@@ -24,6 +24,7 @@ Field type annotations drive argument parsing, validation and coercion, so you g
   - [optional](#optional)
   - [default and default\_factory](#default-and-default_factory)
   - [count](#count)
+  - [negatable](#negatable)
   - [Lists and tuples](#lists-and-tuples)
   - [completer](#completer)
 - [Argument Groups](#argument-groups)
@@ -111,7 +112,8 @@ Two field kinds are always options regardless of which helper is used, because t
 command-line concept for them as positionals:
 
 - `bool` fields, which become flags (`--flag` / `store_true`, or `store_false` when the
-  default is `True`).  A boolean must have a default.
+  default is `True`; see [negatable](#negatable) for a paired `--flag`/`--no-flag`).  A
+  boolean must have a default.
 - `count=True` options (see [count](#count)), which are mutually exclusive with a positional.
 
 A positional argument with a default (or `optional=True`) may be omitted on the command line;
@@ -183,6 +185,25 @@ It requires an `int` field and is mutually exclusive with a positional argument.
 ```python
 verbose: int = option(default=0, count=True, abrv="v", description="increase verbosity")
 ```
+
+### negatable
+
+`negatable=True` (`bool` fields only) emits a paired `--flag` / `--no-flag` (argparse
+`BooleanOptionalAction`) instead of a single flag, so the value can be switched both on and
+off from the command line.  The two share one destination and are mutually exclusive - the
+last one given wins.
+
+```python
+color: bool = option(default=True, negatable=True)  # --color / --no-color
+```
+
+```console
+$ tool                        # color == True  (the default)
+$ tool --no-color             # color == False
+$ tool --no-color --color     # color == True  (last one wins)
+```
+
+An `abrv` (if given) sets the value to `True` (there is no negated short form).
 
 ### Lists and tuples
 

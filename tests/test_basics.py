@@ -122,6 +122,54 @@ def test_bool_flag_store_false() -> None:
     assert Cmd.parse(["--color"]).color is False
 
 
+def test_negatable_flag_default_false() -> None:
+    class Cmd(BaseCmdModel):
+        flag: bool = option(default=False, negatable=True)
+
+    assert Cmd.parse([]).flag is False                     # absent -> default
+    assert Cmd.parse(["--flag"]).flag is True              # positive
+    assert Cmd.parse(["--no-flag"]).flag is False          # negated
+    assert Cmd.parse(["--no-flag", "--flag"]).flag is True  # last given wins
+    assert Cmd.parse(["--flag", "--no-flag"]).flag is False
+
+
+def test_negatable_flag_default_true() -> None:
+    class Cmd(BaseCmdModel):
+        color: bool = option(default=True, negatable=True)
+
+    assert Cmd.parse([]).color is True                     # absent -> default
+    assert Cmd.parse(["--no-color"]).color is False        # negated
+    assert Cmd.parse(["--color"]).color is True            # positive
+    assert Cmd.parse(["--no-color", "--color"]).color is True  # last given wins
+
+
+def test_negatable_flag_tristate_none() -> None:
+    # Declaring the field `bool | None` with default None distinguishes "not provided"
+    # (None) from an explicit --flag (True) or --no-flag (False).
+    class Cmd(BaseCmdModel):
+        color: bool | None = option(default=None, negatable=True)
+
+    assert Cmd.parse([]).color is None             # neither flag given
+    assert Cmd.parse(["--color"]).color is True
+    assert Cmd.parse(["--no-color"]).color is False
+
+
+def test_negatable_flag_with_abrv() -> None:
+    class Cmd(BaseCmdModel):
+        color: bool = option(default=False, negatable=True, abrv="c")
+
+    assert Cmd.parse(["-c"]).color is True
+    assert Cmd.parse(["--no-color"]).color is False
+
+
+def test_negatable_requires_bool() -> None:
+    class Cmd(BaseCmdModel):
+        bad: str = option(default="", negatable=True)
+
+    with pytest.raises(InvalidCommandError):
+        Cmd.get_parser()
+
+
 def test_count() -> None:
     class Cmd(BaseCmdModel):
         verbose: int = option(default=0, count=True, abrv="v")

@@ -90,6 +90,26 @@ def test_propagated_bool_flag_after_subcommand() -> None:
     assert _Root.parse(["mid", "leaf", "w", "--quiet"]).quiet is True
 
 
+def test_propagated_negatable_flag_after_subcommand() -> None:
+    class Sub(BaseCmdModel):
+        model_config = CmdConfig(cmd_name="sub")
+
+        def run(self) -> None: ...
+
+    class Root(BaseCmdModel):
+        model_config = CmdConfig(sub_commands=(Sub,))
+        color: bool = option(default=True, negatable=True, propagate=True)
+
+        def run(self) -> None: ...
+
+    # The negated form is accepted after the sub-command token ...
+    assert Root.parse(["sub", "--no-color"]).color is False
+    # ... and the positive form too; both land on the root owner.
+    assert Root.parse(["sub", "--color"]).color is True
+    # Absent everywhere -> owner default.
+    assert Root.parse(["sub"]).color is True
+
+
 def test_absent_propagated_options_keep_owner_default() -> None:
     root = _Root.parse(["mid", "leaf", "w"])
     assert root.verbose == 0
